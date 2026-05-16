@@ -29,16 +29,25 @@ var edge_nodes: Array = []
 # ── Visuals ──
 var env_ref: Environment
 var starfield: GPUParticles3D
-var grid_cage: MeshInstance3D
-var grid_visible: bool = false
+var grid_cage: Node3D
+var cage_visible: bool = false
 var palette_index: int = 0
 var edge_trail_timer: float = 0.0
 var orb_shader: ShaderMaterial
 var edge_shader: ShaderMaterial
 
+# ── Energy rivers ──
+var river_motes: Array = []
+var river_data: Array = []  # {fr, to, dir_norm, length}
+var rivers_visible: bool = true
+
+# ── Galaxy ──
+var galaxy_arms: int = 4
+var galaxy_particles: int = 3
+
 const PALETTE_NAMES = ["Cosmic", "Fire", "Aurora", "Neon", "Void"]
-const PALETTE_HUES = [0.0, 0.07, 0.4, 0.75, 0.58]   # hue offsets
-const PALETTE_SATS = [0.85, 1.0, 0.9, 1.0, 0.35]      # saturation multipliers
+const PALETTE_HUES = [0.0, 0.07, 0.4, 0.75, 0.58]
+const PALETTE_SATS = [0.85, 1.0, 0.9, 1.0, 0.35]
 
 const MODE_NAMES = [
 	"Flower of Life 3D",
@@ -46,7 +55,11 @@ const MODE_NAMES = [
 	"Platonic Solids",
 	"Torus Knot",
 	"Fibonacci Spiral",
-	"Cymatics Sphere"
+	"Cymatics Sphere",
+	"Merkaba",
+	"Seed of Life",
+	"Sri Yantra",
+	"Galaxy"
 ]
 const PLATONIC_NAMES = ["Tetrahedron", "Cube", "Octahedron", "Dodecahedron", "Icosahedron"]
 
@@ -182,6 +195,8 @@ func _clear_geometry():
 		child.queue_free()
 	vertex_orbs.clear()
 	edge_nodes.clear()
+	river_data.clear()
+	_clear_river_motes()
 
 
 func _build_current_geometry():
@@ -193,6 +208,11 @@ func _build_current_geometry():
 		3: _create_torus_knot(torus_p, torus_q)
 		4: _create_fibonacci_spiral()
 		5: _create_cymatics_sphere()
+		6: _create_merkaba()
+		7: _create_seed_of_life()
+		8: _create_sri_yantra()
+		9: _create_galaxy()
+	_build_river_data()
 
 
 # ═══════════════════════════════════════════
@@ -491,6 +511,179 @@ func _create_cymatics_sphere():
 
 
 # ═══════════════════════════════════════════
+# MODE 6 — Merkaba (star tetrahedron)
+# Two interlocking tetrahedra, one inverted, counter-rotating
+# ═══════════════════════════════════════════
+var merkaba_rot: float = 0.0
+
+func _create_merkaba():
+	merkaba_rot = 0.0
+	var scale = 2.5
+	# Tetrahedron 1 (upright) vertices
+	var v2 = sqrt(2.0); var v6 = sqrt(6.0)
+	var t1 = PackedVector3Array([
+		Vector3(0, 1, 0),
+		Vector3(2*v2/3.0, -1.0/3.0, 0),
+		Vector3(-v2/3.0, -1.0/3.0, v6/3.0),
+		Vector3(-v2/3.0, -1.0/3.0, -v6/3.0),
+	])
+	var pts1 = []
+	for v in t1: pts1.append(v * scale)
+	# Tetrahedron 2 (inverted — rotate 180° around Y)
+	var pts2 = []
+	for p in pts1: pts2.append(Vector3(-p.x, p.y, -p.z))
+
+	for p in pts1: _create_vertex(p, 0.07, Color(0.3, 0.9, 1.0))
+	for p in pts2: _create_vertex(p, 0.07, Color(1, 0.3, 0.8))
+	_connect_vertices(pts1, 1.8 * scale, Color(0.25, 0.7, 1.0), 0.005)
+	_connect_vertices(pts2, 1.8 * scale, Color(1, 0.25, 0.7), 0.005)
+	# Cross-connections between the two tetrahedra
+	for p1 in pts1:
+		for p2 in pts2:
+			if p1.distance_to(p2) < 2.0 * scale:
+				_create_edge(p1, p2, 0.004, Color(0.6, 0.4, 1.0))
+
+
+# ═══════════════════════════════════════════
+# MODE 7 — Seed of Life
+# 7 interlocking circles on equatorial plane
+# ═══════════════════════════════════════════
+func _create_seed_of_life():
+	var R = 1.5
+	var orbs_per_ring = 18
+	# Center circle
+	var center_pts = []
+	for i in orbs_per_ring:
+		var a = i * TAU / orbs_per_ring
+		center_pts.append(Vector3(cos(a) * R, 0, sin(a) * R))
+	for p in center_pts: _create_vertex(p, 0.04, Color(1, 0.85, 0.3))
+	_connect_vertices(center_pts, R * 0.6, Color(1, 0.75, 0.2), 0.004)
+
+	# 6 surrounding circles
+	var colors = [Color(0.2,0.8,1), Color(1,0.3,0.6), Color(0.3,1,0.5),
+				  Color(1,0.7,0.2), Color(0.7,0.3,1), Color(0.2,1,0.8)]
+	for ring in 6:
+		var cx = cos(ring * PI / 3.0) * R
+		var cz = sin(ring * PI / 3.0) * R
+		var ring_pts = []
+		for i in orbs_per_ring:
+			var a = i * TAU / orbs_per_ring
+			ring_pts.append(Vector3(cx + cos(a) * R, 0, cz + sin(a) * R))
+		for p in ring_pts: _create_vertex(p, 0.035, colors[ring])
+		_connect_vertices(ring_pts, R * 0.6, colors[ring], 0.003)
+
+	# Add depth — small orbs at Y offsets
+	for sgn in [-1, 1]:
+		for i in 6:
+			var a = i * PI / 3.0
+			var p = Vector3(cos(a) * R * 1.5, sgn * 0.6, sin(a) * R * 1.5)
+			_create_vertex(p, 0.05, Color(0.5, 0.5, 1.0))
+
+
+# ═══════════════════════════════════════════
+# MODE 8 — Sri Yantra
+# 9 interlocking triangles (4 up + 5 down), central bindu
+# ═══════════════════════════════════════════
+func _create_sri_yantra():
+	# Central bindu
+	_create_vertex(Vector3.ZERO, 0.1, Color(1, 0.9, 0.3))
+
+	# 4 upward triangles (Shiva) + 5 downward triangles (Shakti)
+	var all_tris = []
+	var scales_up = [0.5, 1.0, 1.6, 2.3]
+	var scales_dn = [0.75, 1.25, 1.85, 2.55, 3.0]
+	var base_angle = 0.0
+
+	# Upward triangles (pointing +Y)
+	for i in scales_up.size():
+		var s = scales_up[i]
+		var angle = base_angle + i * PI / 9.0
+		var pts = _make_triangle_points(s, angle, true, 0.1 * i)
+		all_tris += pts
+		var col = Color(1, 0.35, 0.2).lerp(Color(1, 0.8, 0.2), float(i) / scales_up.size())
+		for p in pts: _create_vertex(p, 0.04, col)
+		_connect_vertices(pts, s * 2.0, col, 0.005)
+
+	# Downward triangles (pointing -Y)
+	for i in scales_dn.size():
+		var s = scales_dn[i]
+		var angle = base_angle + PI / 6.0 + i * PI / 9.0
+		var pts = _make_triangle_points(s, angle, false, 0.1 * i)
+		all_tris += pts
+		var col = Color(0.2, 0.5, 1.0).lerp(Color(0.6, 0.2, 1.0), float(i) / scales_dn.size())
+		for p in pts: _create_vertex(p, 0.04, col)
+		_connect_vertices(pts, s * 2.0, col, 0.005)
+
+	# 8-petal lotus ring
+	for i in 8:
+		var a = i * TAU / 8.0
+		var p = Vector3(cos(a) * 3.3, 0, sin(a) * 3.3)
+		_create_vertex(p, 0.045, Color(1, 0.5, 0.8))
+
+	# Outer square gate
+	var sq_size = 3.6
+	var sq_pts = [
+		Vector3(-sq_size, -0.3, -sq_size), Vector3(sq_size, -0.3, -sq_size),
+		Vector3(sq_size, -0.3, sq_size), Vector3(-sq_size, -0.3, sq_size),
+	]
+	for i in 4:
+		_create_vertex(sq_pts[i], 0.035, Color(0.8, 0.6, 1.0))
+		_create_edge(sq_pts[i], sq_pts[(i + 1) % 4], 0.004, Color(0.6, 0.4, 1.0))
+
+
+func _make_triangle_points(scale: float, angle: float, up: bool, z_off: float) -> Array:
+	var y_sign = 1.0 if up else -1.0
+	var pts = [
+		Vector3(0, y_sign * scale, z_off),
+		Vector3(cos(-PI/6.0 + angle) * scale, y_sign * (-scale * 0.5), sin(-PI/6.0 + angle) * scale + z_off),
+		Vector3(cos(PI * 7.0/6.0 + angle) * scale, y_sign * (-scale * 0.5), sin(PI * 7.0/6.0 + angle) * scale + z_off),
+	]
+	return pts
+
+
+# ═══════════════════════════════════════════
+# MODE 9 — Galaxy
+# Multiple spiral arms with gradient orbs
+# ═══════════════════════════════════════════
+var galaxy_rot: float = 0.0
+
+func _create_galaxy():
+	galaxy_rot = 0.0
+	var arms = galaxy_arms
+	var orbs_per_arm = 45
+	var max_r = 3.8
+	var twist = 3.5  # how tightly wound
+
+	for arm in arms:
+		var arm_angle = arm * TAU / arms
+		var arm_hue = fmod(float(arm) / arms, 1.0)
+		var pts = []
+		for i in orbs_per_arm:
+			var t = float(i) / orbs_per_arm
+			var r = t * max_r
+			var angle = arm_angle + t * twist
+			var height = (t - 0.5) * 0.8  # slight vertical rise
+			var pt = Vector3(cos(angle) * r, height, sin(angle) * r)
+			pts.append(pt)
+			var hue = fmod(arm_hue + t * 0.3, 1.0)
+			var sat = lerp(0.4, 1.0, t)
+			_create_vertex(pt, 0.015 + t * 0.03, Color.from_hsv(hue, sat, 1.0))
+		# Connect along arm
+		for i in pts.size() - 1:
+			_create_edge(pts[i], pts[i + 1], 0.004, Color.from_hsv(arm_hue, 0.6, 0.8))
+
+	# Central core
+	_create_vertex(Vector3.ZERO, 0.12, Color(1, 0.95, 0.7))
+	var core_pts = []
+	for i in 8:
+		var a = i * TAU / 8.0
+		var p = Vector3(cos(a), 0, sin(a)) * 0.25
+		core_pts.append(p)
+		_create_vertex(p, 0.04, Color(1, 0.8, 0.3))
+	_connect_vertices(core_pts + [Vector3.ZERO], 0.4, Color(1, 0.7, 0.2), 0.005)
+
+
+# ═══════════════════════════════════════════
 # MAIN PROCESS LOOP
 # ═══════════════════════════════════════════
 func _process(delta):
@@ -550,12 +743,31 @@ func _process(delta):
 		var brightness = 1.3 + amp * 2.0 + beat_energy * 4.0
 		node.material_override.set_shader_parameter("albedo", ec)
 		node.material_override.set_shader_parameter("base_brightness", brightness)
+		node.material_override.set_shader_parameter("beat", beat_energy)
 
 	# ── Animate edges ──
 	for edge in edge_nodes:
 		var mat: ShaderMaterial = edge.material_override
 		if mat:
 			mat.set_shader_parameter("brightness", 0.3 + amp * 1.8 + beat_energy * 2.5)
+
+	# ── Mode-specific rotation ──
+	if mode == 6:  # Merkaba counter-rotation
+		merkaba_rot += delta * (0.4 + amp * 0.8)
+		for i in vertex_orbs.size():
+			var orb = vertex_orbs[i]
+			var bp: Vector3 = orb["base_pos"]
+			if i < 4:  # First tetrahedron
+				orb["node"].position = bp.rotated(Vector3.UP, merkaba_rot)
+			else:  # Second tetrahedron — counter-rotate
+				orb["node"].position = bp.rotated(Vector3.UP, -merkaba_rot * 0.7)
+	elif mode == 9:  # Galaxy rotation
+		galaxy_rot += delta * (0.2 + amp * 0.4)
+		geometry_container.rotate_y(delta * (0.2 + amp * 0.4))
+
+	# ── Energy rivers ──
+	if rivers_visible and river_data.size() > 0:
+		_update_rivers(amp, beat_energy, delta)
 
 	# ── Starfield pulse ──
 	if starfield:
@@ -565,20 +777,11 @@ func _process(delta):
 			var sc = Color(0.5 + amp, 0.6 + amp * 1.2, 1.0)
 			spm.color = sc
 
-	# ── Edge trail particles ──
-	edge_trail_timer += delta
-	if edge_trail_timer > 0.03 and edge_nodes.size() > 0:
-		edge_trail_timer = 0.0
-		_emit_edge_trail(amp)
-
 	# ── Grid cage ──
-	if grid_visible and grid_cage:
+	if cage_visible and grid_cage:
 		grid_cage.visible = true
-		grid_cage.rotate_y(delta * 0.08)
-		grid_cage.rotate_x(delta * 0.04)
-		var gm: StandardMaterial3D = grid_cage.material_override
-		if gm:
-			gm.emission_energy_multiplier = 0.2 + amp * 1.0
+		grid_cage.rotate_y(delta * 0.06)
+		grid_cage.rotate_x(delta * 0.03)
 	elif grid_cage:
 		grid_cage.visible = false
 
@@ -606,8 +809,10 @@ func _process(delta):
 			label.text += "   [free]"
 		if Input.is_key_pressed(KEY_SHIFT):
 			label.text += "   [slow]"
-		if grid_visible:
-			label.text += "   [grid]"
+		if cage_visible:
+			label.text += "   [cage]"
+		if not rivers_visible:
+			label.text += "   [no rivers]"
 
 
 # ═══════════════════════════════════════════
@@ -630,6 +835,10 @@ func _input(event: InputEvent):
 			KEY_4: _jump_mode(3); return
 			KEY_5: _jump_mode(4); return
 			KEY_6: _jump_mode(5); return
+			KEY_7: _jump_mode(6); return
+			KEY_8: _jump_mode(7); return
+			KEY_9: _jump_mode(8); return
+			KEY_0: _jump_mode(9); return
 			KEY_R:
 				if mode == 2:
 					platonic_index = randi() % 5
@@ -646,7 +855,17 @@ func _input(event: InputEvent):
 				palette_index = (palette_index + 1) % PALETTE_NAMES.size()
 				return
 			KEY_G:
-				grid_visible = not grid_visible
+				cage_visible = not cage_visible
+				return
+			KEY_H:
+				rivers_visible = not rivers_visible
+				if not rivers_visible: _clear_river_motes()
+				else: _build_river_data()
+				return
+			KEY_E:
+				if mode == 9:
+					galaxy_arms = clampi(galaxy_arms + 1, 2, 8)
+					_build_current_geometry()
 				return
 			KEY_B:
 				env_ref.glow_enabled = not env_ref.glow_enabled
@@ -776,58 +995,154 @@ func _create_starfield():
 
 
 # ═══════════════════════════════════════════
-# GRID CAGE — wireframe sacred geometry shell
+# GRID CAGE — real wireframe icosahedron + dodecahedron
 # ═══════════════════════════════════════════
 func _create_grid_cage():
-	grid_cage = MeshInstance3D.new()
+	grid_cage = Node3D.new()
 	grid_cage.name = "GridCage"
-	var ico = SphereMesh.new()
-	ico.radius = 4.5
-	ico.height = 9.0
-	ico.radial_segments = 16
-	ico.rings = 6
-	grid_cage.mesh = ico
-	var gm = StandardMaterial3D.new()
-	gm.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	gm.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	gm.albedo_color = Color(0.25, 0.4, 1.0, 0.06)
-	gm.emission_enabled = true
-	gm.emission = Color(0.3, 0.5, 1.0)
-	gm.emission_energy_multiplier = 0.3
-	grid_cage.material_override = gm
 	grid_cage.visible = false
 	add_child(grid_cage)
 
+	# Icosahedron cage — 12 vertices, 30 edges
+	var ico_verts = _get_platonic(4)["verts"]  # Icosahedron
+	var ico_pts = []
+	var scale_ico = 5.0
+	for v in ico_verts:
+		var p = v * scale_ico
+		ico_pts.append(p)
+		_cage_vertex(grid_cage, p, 0.03, Color(0.3, 0.6, 1.0))
+	for i in ico_pts.size():
+		for j in range(i + 1, ico_pts.size()):
+			if ico_pts[i].distance_to(ico_pts[j]) < 1.2 * scale_ico:
+				_cage_edge(grid_cage, ico_pts[i], ico_pts[j], 0.004, Color(0.25, 0.5, 1.0, 0.6))
+
+	# Dodecahedron cage — 20 vertices, 30 edges
+	var dod_verts = _get_platonic(3)["verts"]  # Dodecahedron
+	var dod_pts = []
+	var scale_dod = 5.8
+	for v in dod_verts:
+		var p = v * scale_dod
+		dod_pts.append(p)
+		_cage_vertex(grid_cage, p, 0.025, Color(0.6, 0.3, 1.0))
+	for i in dod_pts.size():
+		for j in range(i + 1, dod_pts.size()):
+			if dod_pts[i].distance_to(dod_pts[j]) < 0.8 * scale_dod:
+				_cage_edge(grid_cage, dod_pts[i], dod_pts[j], 0.003, Color(0.5, 0.25, 1.0, 0.5))
+
+
+func _cage_vertex(parent: Node3D, pos: Vector3, r: float, col: Color):
+	var mesh = MeshInstance3D.new()
+	var sphere = SphereMesh.new()
+	sphere.radius = r; sphere.height = r * 2.0
+	sphere.radial_segments = 8; sphere.rings = 4
+	mesh.mesh = sphere; mesh.position = pos
+	var mat = StandardMaterial3D.new()
+	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	mat.albedo_color = Color(col.r, col.g, col.b, 0.5)
+	mat.emission_enabled = true
+	mat.emission = col
+	mat.emission_energy_multiplier = 0.6
+	mesh.material_override = mat
+	parent.add_child(mesh)
+
+
+func _cage_edge(parent: Node3D, fr: Vector3, to: Vector3, radius: float, col: Color):
+	var dir_vec = to - fr
+	var length = dir_vec.length()
+	if length < 0.001: return
+	var mid = (fr + to) / 2.0
+	var mesh = MeshInstance3D.new()
+	var cyl = CylinderMesh.new()
+	cyl.top_radius = radius; cyl.bottom_radius = radius
+	cyl.height = length; cyl.radial_segments = 4; cyl.rings = 1
+	mesh.mesh = cyl; mesh.position = mid
+	var y_ax = Vector3.UP; var tgt = dir_vec.normalized()
+	var dot = y_ax.dot(tgt)
+	if dot < -0.9999: mesh.rotation = Vector3(1, 0, 0) * PI
+	elif dot < 0.9999: mesh.rotate(y_ax.cross(tgt).normalized(), y_ax.angle_to(tgt))
+	var mat = StandardMaterial3D.new()
+	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	mat.albedo_color = col
+	mat.emission_enabled = true
+	mat.emission = col
+	mat.emission_energy_multiplier = 0.4
+	mesh.material_override = mat
+	parent.add_child(mesh)
+
 
 # ═══════════════════════════════════════════
-# EDGE TRAIL — energy motes floating along edges
+# ENERGY RIVERS — motes flowing along every edge
 # ═══════════════════════════════════════════
-func _emit_edge_trail(amp: float):
-	var count = clampi(edge_nodes.size() / 4, 1, 15)
-	for _k in count:
-		var idx = randi() % edge_nodes.size()
-		var edge: MeshInstance3D = edge_nodes[idx]
-		var origin = edge.position
-		# Random offset along the cylinder axis
-		var offset = Vector3(
-			randf_range(-0.3, 0.3),
-			randf_range(-0.3, 0.3),
-			randf_range(-0.3, 0.3)
-		)
-		var mesh = MeshInstance3D.new()
-		var sphere = SphereMesh.new()
-		sphere.radius = 0.015; sphere.height = 0.03
-		sphere.radial_segments = 4; sphere.rings = 2
-		mesh.mesh = sphere
-		mesh.position = origin + offset
-		var mat = orb_shader.duplicate()
-		mat.set_shader_parameter("albedo", Color(0.5, 0.7, 1.0))
-		mat.set_shader_parameter("base_brightness", 3.0 + amp * 2.0)
-		mat.set_shader_parameter("fresnel_power", 1.0)
-		mesh.material_override = mat
-		add_child(mesh)
-		var timer = get_tree().create_timer(0.25)
-		timer.timeout.connect(func(): mesh.queue_free())
+func _build_river_data():
+	river_data.clear()
+	for edge in edge_nodes:
+		var mesh: MeshInstance3D = edge
+		var cyl: CylinderMesh = mesh.mesh
+		var length = cyl.height
+		var half = length / 2.0
+		# Cylinder extends along local Y, rotated to world by mesh.rotation
+		var local_top = Vector3(0, half, 0)
+		var local_bot = Vector3(0, -half, 0)
+		var fr = mesh.to_global(local_bot)
+		var to = mesh.to_global(local_top)
+		river_data.append({"fr": fr, "to": to, "length": length, "motes": []})
+	_spawn_river_motes()
+
+
+func _spawn_river_motes():
+	_clear_river_motes()
+	for rd in river_data:
+		var num = clampi(int(rd["length"] / 0.8), 1, 4)
+		for _k in num:
+			var t = randf()
+			var pos = rd["fr"].lerp(rd["to"], float(t))
+			var dir = 1.0 if randf() > 0.5 else -1.0
+			var mesh = MeshInstance3D.new()
+			var sphere = SphereMesh.new()
+			sphere.radius = 0.012; sphere.height = 0.024
+			sphere.radial_segments = 4; sphere.rings = 2
+			mesh.mesh = sphere; mesh.position = pos
+			var mat = orb_shader.duplicate()
+			mat.set_shader_parameter("albedo", Color(0.5, 0.8, 1.0))
+			mat.set_shader_parameter("base_brightness", 2.5)
+			mat.set_shader_parameter("fresnel_power", 1.2)
+			mesh.material_override = mat
+			geometry_container.add_child(mesh)
+			rd["motes"].append({"node": mesh, "t": t, "dir": dir, "speed": randf_range(0.3, 0.9)})
+			river_motes.append(mesh)
+
+
+func _clear_river_motes():
+	for motes in river_data:
+		for m in motes.get("motes", []):
+			m["node"].queue_free()
+	for m in river_motes:
+		m.queue_free()
+	river_motes.clear()
+	for rd in river_data:
+		rd["motes"] = []
+
+
+func _update_rivers(amp: float, beat_e: float, delta: float):
+	for rd in river_data:
+		var fr: Vector3 = rd["fr"]
+		var to: Vector3 = rd["to"]
+		for m in rd["motes"]:
+			var node: MeshInstance3D = m["node"]
+			var spd = m["speed"] * (0.5 + amp * 2.0 + beat_e * 2.0)
+			m["t"] += m["dir"] * spd * delta
+			if m["t"] > 1.0:
+				m["t"] = 1.0; m["dir"] = -1.0
+			elif m["t"] < 0.0:
+				m["t"] = 0.0; m["dir"] = 1.0
+			node.position = fr.lerp(to, float(m["t"]))
+			var mat: ShaderMaterial = node.material_override
+			if mat:
+				var hue = fmod(time * 0.1 + float(m["t"]), 1.0)
+				mat.set_shader_parameter("albedo", Color.from_hsv(hue, 0.9, 1.0))
+				mat.set_shader_parameter("base_brightness", 1.8 + amp * 2.0 + beat_e * 2.0)
 
 
 # ═══════════════════════════════════════════
