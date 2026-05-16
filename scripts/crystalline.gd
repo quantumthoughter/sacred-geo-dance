@@ -13,6 +13,7 @@ var beat_energy: float = 0.0
 var amp: float = 0.0
 var centroid: float = 0.5
 var speed_mult: float = 1.0
+var bass_onset: float = 0.0
 
 # ── Camera ──
 var cam: Camera3D
@@ -347,6 +348,12 @@ func _process(delta):
 	centroid = feat["centroid"]
 	beat_energy = lerp(beat_energy, onset_val * 3.5, delta * 9.0)
 
+	# ── Frequency band separation ──
+	var bass = (1.0 - centroid) * amp       # low freq → bass energy
+	var mid_band = (1.0 - abs(centroid - 0.5) * 2.0) * amp  # mid freq
+	var treble = centroid * amp              # high freq energy
+	bass_onset = bass * onset_val              # bass transient (member for magic layers)
+
 	var pal = PALETTES[palette_index]
 	hue_shift = pal["hue"]
 	sat_mult = pal["sat"]
@@ -371,46 +378,68 @@ func _process(delta):
 			o["pos"] = o["pos"].lerp(o["target_pos"], delta * 4.0 * (1.0 + amp))
 			o["node"].position = o["pos"]
 
-	# ── Animate orbs ──
-	for orb in orbs:
+	# ── Animate orbs — frequency-band separated ──
+	for i in POOL_SIZE:
+		var orb = orbs[i]
 		var node: MeshInstance3D = orb["node"]
 		var phase: float = orb["phase"]
-		var scale: float = orb["scale"]
+		var scl: float = orb["scale"]
 
-		# Cymatics wobble (magic layer)
+		# Distance-based frequency assignment
+		var dist = orb["pos"].length()
+		var bass_factor = clampf(1.0 - dist / 3.5, 0.0, 1.0)   # inner orbs → bass
+		var treble_factor = clampf(dist / 3.5, 0.0, 1.0)         # outer orbs → treble
+		var mid_factor = 1.0 - abs(dist - 1.8) / 2.0              # middle orbs → mids
+
+		# Cymatics wobble
 		if magic_cymatics:
 			var bp = orb["pos"]
-			var wobble = sin(time * 5.0 + bp.length() * 2.0 + phase) * 0.08 * (1.0 + beat_energy)
-			node.position = bp + Vector3(wobble, wobble * 0.6, wobble * 0.6)
+			var f = bass * 3.0 + treble * 8.0  # mixed frequency wobble
+			var wobble = sin(time * f + bp.length() * 2.0 + phase) * 0.05 * (1.0 + bass_onset)
+			node.position = bp + Vector3(wobble, wobble * 0.5, wobble * 0.5)
 		elif transition_progress >= 1.0:
 			node.position = orb["pos"]
 
-		# Scale pulse
-		var pulse = 0.8 + amp * 0.6 + beat_energy * 1.2 * (sin(time * 6.0 + phase) * 0.5 + 0.5)
-		node.scale = Vector3.ONE * scale * pulse * 0.7
+		# Gentle, frequency-aware scale pulse — NEVER disruptive
+		var freq_energy = bass * bass_factor + mid_band * mid_factor + treble * treble_factor
+		var pulse = 0.85 + freq_energy * 0.4 + (sin(time * 4.0 + phase) * 0.5 + 0.5) * 0.15
+		node.scale = Vector3.ONE * scl * pulse * 0.7
 
-		# Color
-		var hue = fmod(centroid * 0.2 + orb["hue_offset"] + hue_shift, 1.0)
-		var ec = Color.from_hsv(hue, clampf(sat_mult * 0.9, 0.1, 1.0), 1.0)
+		# Color — different bands drive different color aspects
+		var hue = fmod(hue_shift + orb["hue_offset"] + centroid * 0.15 + dist * 0.05, 1.0)
+		var sat = clampf(sat_mult * (0.7 + treble * 0.3), 0.2, 1.0)
+		var ec = Color.from_hsv(hue, sat, 1.0)
+		var brightness = 1.4 + bass * 1.5 + treble * 0.8 + beat_energy * 1.2
+		var sparkle_val = 0.15 + treble * 0.6 + bass_onset * 0.3
+
 		var mat: ShaderMaterial = node.material_override
 		mat.set_shader_parameter("albedo", ec)
-		mat.set_shader_parameter("brightness", 1.5 + amp * 1.5 + beat_energy * 3.0)
-		mat.set_shader_parameter("beat", beat_energy)
-		mat.set_shader_parameter("sparkle", 0.2 + beat_energy * 0.5)
+		mat.set_shader_parameter("brightness", brightness)
+		mat.set_shader_parameter("beat", bass_onset)  # bass drives crystalline beat response
+		mat.set_shader_parameter("sparkle", sparkle_val)  # treble drives sparkle
 
 	# ── Magic layers ──
 	if magic_halos: _update_halos(delta)
-	if magic_rays and beat_energy > 0.6: _emit_rays()
+	if magic_rays and bass_onset > 0.4: _emit_rays()
 	if magic_ripples: _update_ripples(delta)
+	if magic_constellation: _update_constellation()
+	elif constellation_edges.size() > 0: _clear_constellation()
 	if magic_trails: _update_trails(delta)
-	if magic_mirror: _update_mirror()
 
 	# ── Particle dance ──
 	_update_particles(delta)
 
-	# ── Starfield ──
-	if starfield:
-		starfield.speed_scale = 0.2 + amp * 0.6
+	# ── Celestial environment pulse (replaces disruptive geometry blasts) ──
+	if bass_onset > 0.5:
+		env_ref.glow_intensity = lerp(env_ref.glow_intensity, 5.5, delta * 8.0)
+		env_ref.volumetric_fog_emission_energy = lerp(env_ref.volumetric_fog_emission_energy, 1.2, delta * 8.0)
+		if starfield:
+			starfield.speed_scale = 1.5
+	else:
+		env_ref.glow_intensity = lerp(env_ref.glow_intensity, 3.5, delta * 3.0)
+		env_ref.volumetric_fog_emission_energy = lerp(env_ref.volumetric_fog_emission_energy, 0.4, delta * 3.0)
+		if starfield:
+			starfield.speed_scale = 0.2 + amp * 0.6
 
 	# ── Camera ──
 	if auto_orbit:
@@ -425,17 +454,17 @@ func _process(delta):
 	var label = get_node_or_null("Label")
 	if label:
 		var mag = []
-		if magic_halos: mag.append("halo")
-		if magic_rays: mag.append("ray")
-		if magic_ripples: mag.append("ripple")
-		if magic_constellation: mag.append("const")
-		if magic_aurora: mag.append("aurora")
-		if magic_cymatics: mag.append("cym")
-		if magic_trails: mag.append("trail")
-		if magic_mirror: mag.append("mirror")
+		if magic_halos: mag.append("Q")
+		if magic_rays: mag.append("W")
+		if magic_ripples: mag.append("E")
+		if magic_constellation: mag.append("R")
+		if magic_aurora: mag.append("T")
+		if magic_cymatics: mag.append("Y")
+		if magic_trails: mag.append("U")
+		if magic_mirror: mag.append("I")
 		var mag_str = ""
 		for m in mag: mag_str += m + " "
-		label.text = "[%d] %s   e:%.2f   %.2fx   %s   +%s" % [current_layer, LAYER_NAMES[current_layer], amp, speed_mult, PALETTES[palette_index]["name"], mag_str.strip_edges()]
+		label.text = "[%d] %s   B:%.2f T:%.2f   %.2fx   %s   +%s" % [current_layer, LAYER_NAMES[current_layer], clampf(bass, 0, 1), clampf(treble, 0, 1), speed_mult, PALETTES[palette_index]["name"], mag_str.strip_edges()]
 
 
 # ═══════════════════════════════════════════
@@ -483,7 +512,7 @@ func _emit_rays():
 # F3 — Ripple rings
 func _update_ripples(_delta):
 	ripple_timer += _delta
-	if ripple_timer > 0.5 + beat_energy * 2.0:
+	if ripple_timer > 0.5 + bass_onset * 2.0:
 		ripple_timer = 0.0
 		var ring = Node3D.new()
 		ring.name = "Ripple"
@@ -501,42 +530,50 @@ func _update_ripples(_delta):
 		ring.position = Vector3(randf_range(-1,1), randf_range(-1,1), randf_range(-1,1))
 		add_child(ring)
 		ripple_nodes.append({"node": ring, "life": 1.5, "scale": 0.5})
-	for rp in ripple_nodes:
+	var expired = []
+	for i in ripple_nodes.size():
+		var rp = ripple_nodes[i]
 		rp["life"] -= _delta
 		rp["scale"] += _delta * 3.0 * (1.0 + amp)
 		rp["node"].scale = Vector3.ONE * rp["scale"]
-		if rp["life"] <= 0: rp["node"].queue_free()
-	ripple_nodes = ripple_nodes.filter(func(r): return r["life"] > 0)
+		if rp["life"] <= 0:
+			rp["node"].queue_free()
+			expired.append(i)
+	for i in range(expired.size() - 1, -1, -1):
+		ripple_nodes.remove_at(expired[i])
+
+func _clear_constellation():
+	for edge in constellation_edges: edge.queue_free()
+	constellation_edges.clear()
+
 
 # F4 — Constellation lines
 func _update_constellation():
-	for edge in constellation_edges: edge.queue_free()
-	constellation_edges.clear()
-	var active = orbs.slice(0, min(orbs.size(), 30))
-	for i in active.size():
-		for j in range(i + 1, active.size()):
-			var d = active[i]["node"].position.distance_to(active[j]["node"].position)
+	_clear_constellation()
+	var count = min(orbs.size(), 30)
+	for i in count:
+		for j in range(i + 1, count):
+			var d = orbs[i]["node"].position.distance_to(orbs[j]["node"].position)
 			if d < 2.5 and d > 0.2:
-				_draw_line(active[i]["node"].position, active[j]["node"].position, Color(0.4, 0.6, 1.0, 0.3))
+				_draw_line(orbs[i]["node"].position, orbs[j]["node"].position, Color(0.35, 0.55, 1.0, 0.25))
 
-# F5 — Aurora (handled in environment via volumetric fog — enabled by default)
 
-# F6 — Cymatics (handled in orb animation above)
-
-# F7 — Trails
+# F7 — Trails — ghost orbs that follow the main orbs
 func _update_trails(_delta):
-	trail_positions.append(orbs.slice(0, 15).map(func(o): return o["node"].position))
-	if trail_positions.size() > 12: trail_positions.pop_front()
-	for ti in trail_positions.size():
-		var alpha = float(ti) / trail_positions.size() * 0.3
-		for pi in trail_positions[ti].size():
-			if pi < trail_positions[ti].size() - 1: continue  # simplified
-			# Draw fading ghosts
-			pass
-
-# F8 — Mirror dimension (simplified — toggles secondary view)
-func _update_mirror():
-	pass  # Mirror is per-frame geometry duplication — handled in _process's second pass concept
+	for i in min(orbs.size(), 12):
+		if randf() > 0.15: continue
+		var orb = orbs[i]
+		var ghost = orb["node"].position + Vector3(randf_range(-0.1,0.1), randf_range(-0.1,0.1), randf_range(-0.1,0.1))
+		var mesh = MeshInstance3D.new()
+		var sphere = SphereMesh.new(); sphere.radius = 0.04; sphere.height = 0.08
+		mesh.mesh = sphere; mesh.position = ghost; mesh.scale = orb["node"].scale * 0.6
+		var mat = crystal_shader.duplicate()
+		mat.set_shader_parameter("albedo", orb["color"])
+		mat.set_shader_parameter("brightness", 1.2)
+		mat.set_shader_parameter("dispersion", 0.2)
+		mesh.material_override = mat; add_child(mesh)
+		var timer = get_tree().create_timer(0.6)
+		timer.timeout.connect(func(): mesh.queue_free())
 
 
 # ═══════════════════════════════════════════
@@ -666,14 +703,14 @@ func _input(event: InputEvent):
 			KEY_F: DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_FULLSCREEN if DisplayServer.window_get_mode() != DisplayServer.WINDOW_MODE_FULLSCREEN else DisplayServer.WINDOW_MODE_WINDOWED); return
 			KEY_B: env_ref.glow_enabled = not env_ref.glow_enabled; return
 			KEY_A: auto_transition = not auto_transition; return
-			KEY_F1: magic_halos = not magic_halos; return
-			KEY_F2: magic_rays = not magic_rays; return
-			KEY_F3: magic_ripples = not magic_ripples; return
-			KEY_F4: magic_constellation = not magic_constellation; _update_constellation(); return
-			KEY_F5: magic_aurora = not magic_aurora; env_ref.volumetric_fog_enabled = magic_aurora; return
-			KEY_F6: magic_cymatics = not magic_cymatics; return
-			KEY_F7: magic_trails = not magic_trails; return
-			KEY_F8: magic_mirror = not magic_mirror; return
+			KEY_Q: magic_halos = not magic_halos; return
+			KEY_W: magic_rays = not magic_rays; return
+			KEY_E: magic_ripples = not magic_ripples; return
+			KEY_R: magic_constellation = not magic_constellation; return
+			KEY_T: magic_aurora = not magic_aurora; env_ref.volumetric_fog_enabled = magic_aurora; return
+			KEY_Y: magic_cymatics = not magic_cymatics; return
+			KEY_U: magic_trails = not magic_trails; return
+			KEY_I: magic_mirror = not magic_mirror; return
 			KEY_UP: speed_mult = minf(speed_mult + 0.05, 3.0); return
 			KEY_DOWN: speed_mult = maxf(speed_mult - 0.05, 0.05); return
 			KEY_EQUAL, KEY_PLUS, KEY_KP_ADD: speed_mult = minf(speed_mult + 0.05, 3.0); return
@@ -693,11 +730,14 @@ func _input(event: InputEvent):
 
 
 # ═══════════════════════════════════════════
-# BEAT BLAST
+# CELESTIAL LIGHT BURST — background effect, NOT geometry disruption
 # ═══════════════════════════════════════════
 func _create_blast():
-	var origin = Vector3.ZERO
-	if orbs.size() > 0: origin = orbs[randi() % orbs.size()]["node"].position
-	for _k in 20:
-		var pos = origin + Vector3(randf_range(-1.5,1.5), randf_range(-1.5,1.5), randf_range(-1.5,1.5))
-		_spawn_mote(pos, Color(1, 0.8, 0.3), 0.3)
+	# Light rays from center — gentle, celestial
+	for _k in 8:
+		var dir = Vector3(randf_range(-1,1), randf_range(-1,1), randf_range(-1,1)).normalized()
+		for s in range(6):
+			_spawn_mote(dir * s * 0.8, Color(1, 0.85, 0.5), 0.35)
+	# Brief glow surge
+	env_ref.glow_intensity = 6.0
+	env_ref.volumetric_fog_emission_energy = 2.0
