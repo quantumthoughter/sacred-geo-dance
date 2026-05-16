@@ -153,11 +153,11 @@ func _setup_scene():
 	add_child(attractor_root)
 
 	# 5 particle systems
-	p_sub  = _create_particle_system(1800, 0.015, 0.04, Vector3(0,0,0))
-	p_bass = _create_particle_system(1500, 0.012, 0.035, Vector3(0,0,0))
-	p_mid  = _create_particle_system(1200, 0.01, 0.03, Vector3(0,0,0))
-	p_high = _create_particle_system(900, 0.008, 0.025, Vector3(0,0,0))
-	p_air  = _create_particle_system(600, 0.006, 0.02, Vector3(0,0,0))
+	p_sub  = _create_particle_system(1200, 0.04, 0.10, Vector3(0,0,0))
+	p_bass = _create_particle_system(1000, 0.03, 0.08, Vector3(0,0,0))
+	p_mid  = _create_particle_system(800, 0.025, 0.06, Vector3(0,0,0))
+	p_high = _create_particle_system(600, 0.02, 0.05, Vector3(0,0,0))
+	p_air  = _create_particle_system(400, 0.015, 0.04, Vector3(0,0,0))
 	particle_systems = [p_sub, p_bass, p_mid, p_high, p_air]
 
 	# Equation root
@@ -193,8 +193,8 @@ func _create_particle_system(amount: int, scale_min: float, scale_max: float, po
 
 	var pm = ParticleProcessMaterial.new()
 	pm.emission_shape = ParticleProcessMaterial.EMISSION_SHAPE_SPHERE
-	pm.emission_sphere_radius = 3.0
-	pm.spread = 30.0
+	pm.emission_sphere_radius = 5.0
+	pm.spread = 60.0
 	pm.gravity = Vector3.ZERO
 	pm.initial_velocity_min = 0.5; pm.initial_velocity_max = 1.5
 	pm.scale_min = scale_min; pm.scale_max = scale_max
@@ -205,12 +205,13 @@ func _create_particle_system(amount: int, scale_min: float, scale_max: float, po
 
 	var dp = MeshInstance3D.new()
 	var sphere = SphereMesh.new()
-	sphere.radius = 0.015; sphere.height = 0.03
+	sphere.radius = 0.04; sphere.height = 0.08
 	sphere.radial_segments = 3; sphere.rings = 1
 	dp.mesh = sphere
 	var mat = sand_shader.duplicate()
 	mat.set_shader_parameter("albedo", Color(0.8, 0.5, 0.2))
-	mat.set_shader_parameter("energy", 1.0)
+	mat.set_shader_parameter("energy", 2.0)
+	mat.set_shader_parameter("grain_size", 1.2)
 	dp.material_override = mat
 	ps.draw_pass_1 = dp
 	add_child(ps)
@@ -272,11 +273,21 @@ func _process(delta):
 	delta *= speed_mult
 	if Input.is_key_pressed(KEY_SHIFT): delta *= 0.1
 	time += delta
-	if not audio.playing: return
 
-	var t = audio.get_playback_position()
+	var t = 0.0
 	var f = {"sub":0,"bass":0,"mid":0,"high":0,"air":0,"onset":0,"rms":0.5,"centroid":0.5}
-	if band_data: f = band_data.frame_at(t)
+	if audio.playing:
+		t = audio.get_playback_position()
+		if band_data: f = band_data.frame_at(t)
+	else:
+		# Demo mode — animate with time only
+		f["sub"] = sin(time * 0.5) * 0.5 + 0.5
+		f["bass"] = sin(time * 0.7 + 1.0) * 0.5 + 0.5
+		f["mid"] = sin(time * 1.1 + 2.0) * 0.5 + 0.5
+		f["high"] = sin(time * 1.3 + 3.0) * 0.5 + 0.5
+		f["air"] = sin(time * 1.7 + 4.0) * 0.5 + 0.5
+		f["onset"] = 0.0
+		f["rms"] = sin(time * 0.3) * 0.3 + 0.4
 
 	sub_val = f["sub"]; bass_val = f["bass"]; mid_val = f["mid"]
 	high_val = f["high"]; air_val = f["air"]; onset_val = f["onset"]
