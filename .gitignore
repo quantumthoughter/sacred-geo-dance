@@ -1,0 +1,17 @@
+# Godot
+.godot/
+*.translation
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Export
+export/
+build/
+
+# Logs
+*.log
+
+# User-specific
+*.uid

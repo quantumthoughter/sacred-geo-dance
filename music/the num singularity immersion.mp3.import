@@ -1,0 +1,19 @@
+[remap]
+
+importer="mp3"
+type="AudioStreamMP3"
+uid="uid://bshfyeoow20n6"
+path="res://.godot/imported/the num singularity immersion.mp3-30b36668655078b8ba280c9af2043788.mp3str"
+
+[deps]
+
+source_file="res://music/the num singularity immersion.mp3"
+dest_files=["res://.godot/imported/the num singularity immersion.mp3-30b36668655078b8ba280c9af2043788.mp3str"]
+
+[params]
+
+loop=false
+loop_offset=0
+bpm=0
+beat_count=0
+bar_beats=4
