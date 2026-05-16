@@ -26,6 +26,20 @@ var torus_q: int = 3
 var vertex_orbs: Array = []
 var edge_nodes: Array = []
 
+# ── Visuals ──
+var env_ref: Environment
+var starfield: GPUParticles3D
+var grid_cage: MeshInstance3D
+var grid_visible: bool = false
+var palette_index: int = 0
+var edge_trail_timer: float = 0.0
+var orb_shader: ShaderMaterial
+var edge_shader: ShaderMaterial
+
+const PALETTE_NAMES = ["Cosmic", "Fire", "Aurora", "Neon", "Void"]
+const PALETTE_HUES = [0.0, 0.07, 0.4, 0.75, 0.58]   # hue offsets
+const PALETTE_SATS = [0.85, 1.0, 0.9, 1.0, 0.35]      # saturation multipliers
+
 const MODE_NAMES = [
 	"Flower of Life 3D",
 	"Metatron's Cube",
@@ -93,30 +107,23 @@ func _setup_scene():
 			if s: audio.stream = s; break
 		fn = dir.get_next()
 
-	# Two-tone directional lights for depth
-	var dl1 = DirectionalLight3D.new()
-	dl1.position = Vector3(5, 8, 5)
-	dl1.light_energy = 0.35
-	dl1.light_color = Color(0.3, 0.2, 0.5)
-	add_child(dl1)
-
-	var dl2 = DirectionalLight3D.new()
-	dl2.position = Vector3(-4, -3, -5)
-	dl2.light_energy = 0.2
-	dl2.light_color = Color(0.1, 0.3, 0.6)
-	add_child(dl2)
-
-	# Environment — deep void with rich glow
+	# Environment — rich cosmic void
 	var env = WorldEnvironment.new()
-	var er = Environment.new()
-	er.background_color = Color(0.02, 0.01, 0.04, 1)
-	er.ambient_light_color = Color(0.06, 0.03, 0.12, 1)
-	er.ambient_light_source = 1
-	er.glow_enabled = true
-	er.glow_intensity = 2.8
-	er.glow_bloom = 0.7
-	er.glow_hdr_threshold = 0.75
-	env.environment = er
+	env_ref = Environment.new()
+	env_ref.background_color = Color(0.01, 0.005, 0.03, 1)
+	env_ref.ambient_light_color = Color(0.04, 0.02, 0.08, 1)
+	env_ref.ambient_light_source = 1
+	env_ref.glow_enabled = true
+	env_ref.glow_intensity = 3.2
+	env_ref.glow_bloom = 0.85
+	env_ref.glow_hdr_threshold = 0.4
+	env_ref.glow_hdr_scale = 2.5
+	env_ref.volumetric_fog_enabled = true
+	env_ref.volumetric_fog_density = 0.008
+	env_ref.volumetric_fog_albedo = Color(0.06, 0.02, 0.12)
+	env_ref.volumetric_fog_emission = Color(0.1, 0.05, 0.2)
+	env_ref.volumetric_fog_emission_energy = 0.3
+	env.environment = env_ref
 	add_child(env)
 
 	# Camera
@@ -141,6 +148,18 @@ func _setup_scene():
 	geometry_container = Node3D.new()
 	geometry_container.name = "GeometryContainer"
 	add_child(geometry_container)
+
+	# Starfield
+	_create_starfield()
+
+	# Light grid cage (hidden by default)
+	_create_grid_cage()
+
+	# Shaders
+	orb_shader = ShaderMaterial.new()
+	orb_shader.shader = load("res://shaders/energy_orb.gdshader")
+	edge_shader = ShaderMaterial.new()
+	edge_shader.shader = load("res://shaders/glow_edge.gdshader")
 
 
 # ═══════════════════════════════════════════
@@ -188,11 +207,11 @@ func _create_vertex(pos: Vector3, radius: float, color: Color):
 	sphere.rings = 8
 	mesh.mesh = sphere
 	mesh.position = pos
-	var mat = StandardMaterial3D.new()
-	mat.albedo_color = color
-	mat.emission_enabled = true
-	mat.emission = color * 3.2
-	mat.emission_energy_multiplier = 1.6
+	var mat = orb_shader.duplicate()
+	mat.set_shader_parameter("albedo", color)
+	mat.set_shader_parameter("fresnel_power", randf_range(1.8, 2.8))
+	mat.set_shader_parameter("pulse_speed", randf_range(3.0, 6.0))
+	mat.set_shader_parameter("base_brightness", 1.3 + randf() * 0.4)
 	mesh.material_override = mat
 	geometry_container.add_child(mesh)
 	var orb = {
@@ -200,7 +219,7 @@ func _create_vertex(pos: Vector3, radius: float, color: Color):
 		"base_radius": radius,
 		"color": color,
 		"phase": randf() * TAU,
-		"base_pos": pos  # original position for displacement-based animations
+		"base_pos": pos
 	}
 	vertex_orbs.append(orb)
 	return orb
@@ -233,11 +252,9 @@ func _create_edge(fr: Vector3, to: Vector3, radius: float, color: Color):
 		var angle = y_ax.angle_to(tgt)
 		mesh.rotate(axis, angle)
 
-	var mat = StandardMaterial3D.new()
-	mat.albedo_color = color * 0.4
-	mat.emission_enabled = true
-	mat.emission = color * 1.8
-	mat.emission_energy_multiplier = 1.0
+	var mat = edge_shader.duplicate()
+	mat.set_shader_parameter("albedo", color)
+	mat.set_shader_parameter("brightness", 1.2 + randf() * 0.6)
 	mesh.material_override = mat
 	geometry_container.add_child(mesh)
 	edge_nodes.append(mesh)
@@ -525,17 +542,45 @@ func _process(delta):
 		var pulse = 1.0 + amp * 1.0 + beat_energy * 1.6 * (sin(time * 8.0 + phase) * 0.5 + 0.5)
 		node.scale = Vector3.ONE * pulse * 2.8
 
-		# Color shift — centroid drives hue drift
-		var hue = fmod(centroid * 0.25 + time * 0.07 + phase * 0.15, 1.0)
-		var ec = Color.from_hsv(hue, 0.85, 1.0)
-		node.material_override.emission = ec * (2.0 + amp * 3.5 + beat_energy * 5.5)
-		node.material_override.albedo_color = ec * 0.25
+		# Color shift — centroid + palette drives hue
+		var palette = PALETTE_HUES[palette_index]
+		var sat_mul = PALETTE_SATS[palette_index]
+		var hue = fmod(centroid * 0.25 + time * 0.07 + phase * 0.15 + palette, 1.0)
+		var ec = Color.from_hsv(hue, clampf(sat_mul * 0.85, 0.0, 1.0), 1.0)
+		var brightness = 1.3 + amp * 2.0 + beat_energy * 4.0
+		node.material_override.set_shader_parameter("albedo", ec)
+		node.material_override.set_shader_parameter("base_brightness", brightness)
 
 	# ── Animate edges ──
 	for edge in edge_nodes:
-		var mat: StandardMaterial3D = edge.material_override
+		var mat: ShaderMaterial = edge.material_override
 		if mat:
-			mat.emission_energy_multiplier = 0.4 + amp * 2.0 + beat_energy * 3.0
+			mat.set_shader_parameter("brightness", 0.3 + amp * 1.8 + beat_energy * 2.5)
+
+	# ── Starfield pulse ──
+	if starfield:
+		starfield.speed_scale = 0.3 + amp * 0.8
+		var spm: ParticleProcessMaterial = starfield.process_material as ParticleProcessMaterial
+		if spm:
+			var sc = Color(0.5 + amp, 0.6 + amp * 1.2, 1.0)
+			spm.color = sc
+
+	# ── Edge trail particles ──
+	edge_trail_timer += delta
+	if edge_trail_timer > 0.03 and edge_nodes.size() > 0:
+		edge_trail_timer = 0.0
+		_emit_edge_trail(amp)
+
+	# ── Grid cage ──
+	if grid_visible and grid_cage:
+		grid_cage.visible = true
+		grid_cage.rotate_y(delta * 0.08)
+		grid_cage.rotate_x(delta * 0.04)
+		var gm: StandardMaterial3D = grid_cage.material_override
+		if gm:
+			gm.emission_energy_multiplier = 0.2 + amp * 1.0
+	elif grid_cage:
+		grid_cage.visible = false
 
 	# ── Beat blast ──
 	if onset_val > 0.3 and beat_energy > 1.0:
@@ -556,11 +601,13 @@ func _process(delta):
 		var mn = MODE_NAMES[mode]
 		if mode == 2: mn += ": " + PLATONIC_NAMES[platonic_index]
 		if mode == 3: mn += " (%d,%d)" % [torus_p, torus_q]
-		label.text = "%s   %s%.1fs   e:%.2f   %.2f×" % [mn, "✦ " if beat_energy > 0.5 else "", t, amp, speed_mult]
+		label.text = "%s   %s%.1fs   e:%.2f   %.2f×   [%s]" % [mn, "✦ " if beat_energy > 0.5 else "", t, amp, speed_mult, PALETTE_NAMES[palette_index]]
 		if not auto_orbit:
-			label.text += "   [free cam]"
+			label.text += "   [free]"
 		if Input.is_key_pressed(KEY_SHIFT):
 			label.text += "   [slow]"
+		if grid_visible:
+			label.text += "   [grid]"
 
 
 # ═══════════════════════════════════════════
@@ -594,6 +641,15 @@ func _input(event: InputEvent):
 			KEY_M:
 				mouse_cam = not mouse_cam
 				auto_orbit = mouse_cam
+				return
+			KEY_C:
+				palette_index = (palette_index + 1) % PALETTE_NAMES.size()
+				return
+			KEY_G:
+				grid_visible = not grid_visible
+				return
+			KEY_B:
+				env_ref.glow_enabled = not env_ref.glow_enabled
 				return
 			KEY_F:
 				if DisplayServer.window_get_mode() == DisplayServer.WINDOW_MODE_FULLSCREEN:
@@ -672,6 +728,109 @@ func _cycle_mode():
 
 
 # ═══════════════════════════════════════════
+# STARFIELD — cosmic background particles
+# ═══════════════════════════════════════════
+func _create_starfield():
+	starfield = GPUParticles3D.new()
+	starfield.name = "Starfield"
+	starfield.emitting = true
+	starfield.amount = 400
+	starfield.lifetime = 8.0
+	starfield.one_shot = false
+	starfield.explosiveness = 0.0
+	starfield.speed_scale = 0.3
+	starfield.visibility_aabb = AABB(Vector3(-20, -20, -20), Vector3(40, 40, 40))
+
+	# Emission shape — large box
+	var box = BoxShape3D.new()
+	box.extents = Vector3(10, 10, 10)
+	var pm = ParticleProcessMaterial.new()
+	pm.emission_shape = ParticleProcessMaterial.EMISSION_SHAPE_BOX
+	pm.emission_box_extents = Vector3(12, 12, 12)
+	pm.direction = Vector3(0, 0, 0)  # spread
+	pm.spread = 180.0
+	pm.gravity = Vector3(0, 0, 0)
+	pm.initial_velocity_min = 0.1
+	pm.initial_velocity_max = 0.4
+	pm.scale_min = 0.015
+	pm.scale_max = 0.05
+	pm.color = Color(0.7, 0.8, 1.0)
+	starfield.process_material = pm
+
+	var draw_pass = MeshInstance3D.new()
+	var sphere = SphereMesh.new()
+	sphere.radius = 0.03; sphere.height = 0.06
+	sphere.radial_segments = 4; sphere.rings = 2
+	draw_pass.mesh = sphere
+	var sm = StandardMaterial3D.new()
+	sm.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	sm.albedo_color = Color.WHITE
+	sm.emission_enabled = true
+	sm.emission = Color(0.8, 0.85, 1.0)
+	draw_pass.material_override = sm
+	starfield.draw_pass_1 = draw_pass
+
+	add_child(starfield)
+	# Move starfield behind geometry in draw order
+	move_child(starfield, 0)
+
+
+# ═══════════════════════════════════════════
+# GRID CAGE — wireframe sacred geometry shell
+# ═══════════════════════════════════════════
+func _create_grid_cage():
+	grid_cage = MeshInstance3D.new()
+	grid_cage.name = "GridCage"
+	var ico = SphereMesh.new()
+	ico.radius = 4.5
+	ico.height = 9.0
+	ico.radial_segments = 16
+	ico.rings = 6
+	grid_cage.mesh = ico
+	var gm = StandardMaterial3D.new()
+	gm.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	gm.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	gm.albedo_color = Color(0.25, 0.4, 1.0, 0.06)
+	gm.emission_enabled = true
+	gm.emission = Color(0.3, 0.5, 1.0)
+	gm.emission_energy_multiplier = 0.3
+	grid_cage.material_override = gm
+	grid_cage.visible = false
+	add_child(grid_cage)
+
+
+# ═══════════════════════════════════════════
+# EDGE TRAIL — energy motes floating along edges
+# ═══════════════════════════════════════════
+func _emit_edge_trail(amp: float):
+	var count = clampi(edge_nodes.size() / 4, 1, 15)
+	for _k in count:
+		var idx = randi() % edge_nodes.size()
+		var edge: MeshInstance3D = edge_nodes[idx]
+		var origin = edge.position
+		# Random offset along the cylinder axis
+		var offset = Vector3(
+			randf_range(-0.3, 0.3),
+			randf_range(-0.3, 0.3),
+			randf_range(-0.3, 0.3)
+		)
+		var mesh = MeshInstance3D.new()
+		var sphere = SphereMesh.new()
+		sphere.radius = 0.015; sphere.height = 0.03
+		sphere.radial_segments = 4; sphere.rings = 2
+		mesh.mesh = sphere
+		mesh.position = origin + offset
+		var mat = orb_shader.duplicate()
+		mat.set_shader_parameter("albedo", Color(0.5, 0.7, 1.0))
+		mat.set_shader_parameter("base_brightness", 3.0 + amp * 2.0)
+		mat.set_shader_parameter("fresnel_power", 1.0)
+		mesh.material_override = mat
+		add_child(mesh)
+		var timer = get_tree().create_timer(0.25)
+		timer.timeout.connect(func(): mesh.queue_free())
+
+
+# ═══════════════════════════════════════════
 # BEAT BLAST — particle burst in 3D
 # ═══════════════════════════════════════════
 func _create_blast():
@@ -679,19 +838,21 @@ func _create_blast():
 	if vertex_orbs.size() > 0:
 		var idx = randi() % vertex_orbs.size()
 		origin = vertex_orbs[idx]["node"].position
-	for _k in range(14):
+	for _k in range(16):
 		var pos = origin + Vector3(
-			randf_range(-1.2, 1.2),
-			randf_range(-1.2, 1.2),
-			randf_range(-1.2, 1.2)
+			randf_range(-1.5, 1.5),
+			randf_range(-1.5, 1.5),
+			randf_range(-1.5, 1.5)
 		)
 		var mesh = MeshInstance3D.new()
 		var sphere = SphereMesh.new()
 		sphere.radius = 0.04; sphere.height = 0.08
 		mesh.mesh = sphere; mesh.position = pos
-		var mat = StandardMaterial3D.new()
-		mat.emission_enabled = true
-		mat.emission = Color(1, 0.75, 0.25) * 7.0
+		var mat = orb_shader.duplicate()
+		var bc = Color(1, 0.75, 0.25)
+		mat.set_shader_parameter("albedo", bc)
+		mat.set_shader_parameter("base_brightness", 3.0)
+		mat.set_shader_parameter("fresnel_power", 1.5)
 		mesh.material_override = mat
 		add_child(mesh)
 		var timer = get_tree().create_timer(0.35)
