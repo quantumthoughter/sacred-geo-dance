@@ -694,10 +694,10 @@ func _input(event: InputEvent):
 				var n = event.keycode - KEY_0
 				if n >= 0 and n < LAYER_NAMES.size(): _jump_layer(n); return
 			KEY_MINUS: _jump_layer(10); return
-			KEY_EQUAL: _jump_layer(11); return
+			KEY_EQUAL: _jump_layer(11); speed_mult = minf(speed_mult + 0.05, 3.0); return
 			KEY_KP_SUBTRACT: _jump_layer(10); return
-			KEY_KP_ADD: _jump_layer(11); return
-			KEY_R: target_layer = randi() % LAYER_NAMES.size(); _start_transition(); return
+			KEY_KP_ADD: _jump_layer(11); speed_mult = minf(speed_mult + 0.05, 3.0); return
+			KEY_X: target_layer = randi() % LAYER_NAMES.size(); _start_transition(); return
 			KEY_C: palette_index = (palette_index + 1) % PALETTES.size(); return
 			KEY_M: auto_orbit = not auto_orbit; return
 			KEY_F: DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_FULLSCREEN if DisplayServer.window_get_mode() != DisplayServer.WINDOW_MODE_FULLSCREEN else DisplayServer.WINDOW_MODE_WINDOWED); return
@@ -713,7 +713,7 @@ func _input(event: InputEvent):
 			KEY_I: magic_mirror = not magic_mirror; return
 			KEY_UP: speed_mult = minf(speed_mult + 0.05, 3.0); return
 			KEY_DOWN: speed_mult = maxf(speed_mult - 0.05, 0.05); return
-			KEY_EQUAL, KEY_PLUS, KEY_KP_ADD: speed_mult = minf(speed_mult + 0.05, 3.0); return
+			KEY_PLUS: speed_mult = minf(speed_mult + 0.05, 3.0); return
 			KEY_PAGEDOWN: speed_mult = maxf(speed_mult - 0.5, 0.05); return
 			KEY_PAGEUP: speed_mult = minf(speed_mult + 0.5, 3.0); return
 
