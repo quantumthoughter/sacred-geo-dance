@@ -125,7 +125,7 @@ func _setup_scene():
 	env_ref = Environment.new()
 	env_ref.background_color = Color(0.01, 0.005, 0.03, 1)
 	env_ref.ambient_light_color = Color(0.04, 0.02, 0.08, 1)
-	env_ref.ambient_light_source = 1
+	env_ref.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
 	env_ref.glow_enabled = true
 	env_ref.glow_intensity = 3.2
 	env_ref.glow_bloom = 0.85
@@ -426,9 +426,10 @@ func _get_platonic(index: int) -> Dictionary:
 
 func _create_platonic(index: int):
 	var data = _get_platonic(index)
+	if data.is_empty() or not data.has("verts"): return
 	var verts: PackedVector3Array = data["verts"]
-	var thresh: float = data["thresh"]
-	var col: Color = data["color"]
+	var thresh: float = data.get("thresh", 1.5)
+	var col: Color = data.get("color", Color(0.5, 0.5, 1.0))
 	var scale = 2.5
 
 	var points = []
