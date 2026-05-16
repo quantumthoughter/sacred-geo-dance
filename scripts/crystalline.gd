@@ -106,7 +106,7 @@ class DanceData extends RefCounted:
 		if num_frames <= 0: return {"onset": 0, "rms": 0.5, "centroid": 0.5}
 		var i = clampi(int(t * fps), 0, num_frames - 1)
 		return {
-			"onset": onset[i] if i < onset.size() else 0,
+			"onset": onset[i] if i < onset.size() else 0.0,
 			"rms": rms[i] if i < rms.size() else 0.5,
 			"centroid": centroid[i] if i < centroid.size() else 0.5
 		}

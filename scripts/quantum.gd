@@ -99,9 +99,9 @@ class BandData extends RefCounted:
 		if num_frames <= 0: return {"sub":0,"bass":0,"mid":0,"high":0,"air":0,"onset":0,"rms":0.5,"centroid":0.5}
 		var i = clampi(int(t * fps), 0, num_frames - 1)
 		return {
-			"sub": sub[i] if i < sub.size() else 0, "bass": bass[i] if i < bass.size() else 0,
-			"mid": mid[i] if i < mid.size() else 0, "high": high[i] if i < high.size() else 0,
-			"air": air[i] if i < air.size() else 0, "onset": onset[i] if i < onset.size() else 0,
+			"sub": sub[i] if i < sub.size() else 0.0, "bass": bass[i] if i < bass.size() else 0.0,
+			"mid": mid[i] if i < mid.size() else 0.0, "high": high[i] if i < high.size() else 0.0,
+			"air": air[i] if i < air.size() else 0.0, "onset": onset[i] if i < onset.size() else 0.0,
 			"rms": rms[i] if i < rms.size() else 0.5, "centroid": centroid[i] if i < centroid.size() else 0.5
 		}
 
