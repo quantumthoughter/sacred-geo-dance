@@ -7,6 +7,9 @@ var time: float = 0.0
 var beat_energy: float = 0.0
 var speed_mult: float = 1.0
 var simulated_time: float = 0.0  # for MovieWriter recording
+var recording: bool = false
+var record_duration: float = 0.0
+var record_start: float = 0.0
 
 # ── Camera ──
 var cam: Camera3D
@@ -729,8 +732,16 @@ func _process(delta):
 	if audio.playing:
 		t = audio.get_playback_position()
 	else:
+		if not recording:
+			recording = true
+			record_duration = 199.0
+			record_start = 0.0
 		simulated_time += delta
 		t = simulated_time
+
+	# Clean exit when recording reaches song length
+	if recording and simulated_time >= record_duration:
+		get_tree().quit()
 
 	var feat = {"onset": 0, "rms": 0.5, "centroid": 0.5}
 	if dance_data: feat = dance_data.feat_at(t)
@@ -888,6 +899,11 @@ func _input(event: InputEvent):
 			KEY_9: _jump_mode(8); return
 			KEY_0: _jump_mode(9); return
 			KEY_BACKSLASH: _jump_mode(10); return
+			KEY_V:
+				recording = true
+				record_duration = 180.0  # 3 minutes
+				record_start = simulated_time
+				return
 			KEY_R:
 				if mode == 2:
 					platonic_index = randi() % 5

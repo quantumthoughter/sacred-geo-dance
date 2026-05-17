@@ -1,35 +1,31 @@
 #!/bin/bash
-# record.sh — One-command automated video + audio rendering for Sacred Geometry Dance
-# Usage: ./record.sh [duration_seconds] [output_name]
+# record.sh — One-command video recording with music
+# Usage: ./record.sh [output_name]
 
 set -e
 cd "$(dirname "$0")"
 
 GODOT="/Applications/Godot.app/Contents/MacOS/Godot"
-DURATION="${1:-180}"
-NAME="${2:-sacred_dance}"
+NAME="${1:-sacred_dance}"
 AUDIO="music/the num singularity immersion.mp3"
 
-echo "🌙 Recording ${NAME} — ${DURATION}s of sacred geometry..."
-echo "   (offline render — will take a few minutes)"
+echo "🎬 Recording full sacred geometry dance (~3.3 min video, ~8 min render)..."
+echo "   Godot will exit automatically when done."
 
-# Step 1: Render video-only AVI with Godot MovieWriter
-echo "🎬 Rendering frames..."
-$GODOT --path . --write-movie "${NAME}.avi" &
-GODOT_PID=$!
-sleep "$DURATION"
-kill $GODOT_PID 2>/dev/null
-wait $GODOT_PID 2>/dev/null
-echo "   ✓ Frames captured"
+$GODOT --path . --write-movie "${NAME}.avi" 2>/dev/null
 
-# Step 2: Extract audio segment matching video duration
-echo "🔊 Extracting audio..."
+if [ ! -f "${NAME}.avi" ]; then
+  echo "❌ Recording failed"
+  exit 1
+fi
+
+echo "✅ Video rendered: $(ls -lh "${NAME}.avi" | awk '{print $5}')"
+echo "🔊 Merging audio..."
+
 ffmpeg -y -i "${NAME}.avi" -i "$AUDIO" \
   -map 0:v -map 1:a \
   -c:v libx264 -pix_fmt yuv420p \
-  -c:a aac -b:a 192k \
-  -shortest \
-  "${NAME}.mp4" 2>&1 | tail -1
+  -c:a aac -b:a 192k -shortest \
+  "${NAME}.mp4" 2>/dev/null
 
-echo "✨ Done: ${NAME}.mp4"
-ls -lh "${NAME}.mp4"
+echo "✨ ${NAME}.mp4 — $(ls -lh "${NAME}.mp4" | awk '{print $5}')"
