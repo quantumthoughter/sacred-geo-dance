@@ -58,7 +58,12 @@ var river_motes: Array = []
 var river_data: Array = []  # {fr, to, dir_norm, length}
 var rivers_visible: bool = true
 
-# ── Skybox ──
+# ── Image overlays ──
+var image_sprites: Array = []
+var image_index: int = 0
+var images_visible: bool = false
+var image_fade: float = 0.0
+var image_target: float = 0.0
 var sky_index: int = 0
 var sky_paths: Array = []
 var sky_names: Array = []
@@ -137,6 +142,7 @@ func _ready():
 		_build_current_geometry()
 		audio.play()
 	_load_replay()
+	_scan_images()
 
 
 func _notification(what):
@@ -951,6 +957,20 @@ func _process(delta):
 			label.text += "   [%dbars]" % bars_per_switch
 		if sky_names.size() > 0:
 			label.text += "   sky:%s" % sky_names[sky_index]
+		if images_visible and image_sprites.size() > 0:
+			label.text += "   img:%s" % image_sprites[image_index]["name"]
+
+	# ── Image overlay animation ──
+	if image_sprites.size() > 0:
+		var sprite: Sprite3D = image_sprites[image_index]["node"]
+		image_fade = lerpf(image_fade, image_target, delta * 3.0)
+		var alpha = clampf(image_fade, 0.0, 0.85)
+		sprite.modulate = Color(1, 1, 1, alpha)
+		# Gentle floating + scale pulse with beat
+		var scale_pulse = 1.0 + amp * 0.3 + beat_energy * 0.5 * (sin(time * 4 + image_index) * 0.5 + 0.5)
+		sprite.scale = Vector3.ONE * scale_pulse
+		sprite.position.y = sin(time * 0.5 + image_index) * 0.3
+		sprite.rotate_y(delta * 0.1)  # slow rotation
 
 
 # ═══════════════════════════════════════════
@@ -1029,6 +1049,15 @@ func _handle_key(keycode: int):
 		KEY_S:
 			sky_index = (sky_index + 1) % sky_paths.size()
 			_apply_sky(sky_index)
+			return
+		KEY_I:
+			images_visible = not images_visible
+			image_target = 1.0 if images_visible else 0.0
+			if image_sprites.size() > 0:
+				image_sprites[image_index]["node"].visible = images_visible
+			return
+		KEY_O:
+			if images_visible: _cycle_image()
 			return
 		KEY_F:
 			if DisplayServer.window_get_mode() == DisplayServer.WINDOW_MODE_FULLSCREEN:
@@ -1151,6 +1180,45 @@ func _apply_sky(idx: int):
 	var img = Image.load_from_file(sky_paths[idx])
 	if not img.is_empty():
 		sky_material.panorama = ImageTexture.create_from_image(img)
+
+
+# ═══════════════════════════════════════════
+# IMAGE OVERLAYS — billboarded sacred art in 3D
+# ═══════════════════════════════════════════
+func _scan_images():
+	image_sprites.clear()
+	var dir = DirAccess.open("res://images")
+	if not dir: return
+	dir.list_dir_begin()
+	var fn = dir.get_next()
+	while fn != "":
+		if fn.get_extension() in ["png", "jpg", "jpeg"]:
+			var tex = load("res://images/" + fn)
+			if tex:
+				var sprite = Sprite3D.new()
+				sprite.texture = tex
+				sprite.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+				sprite.modulate = Color(1, 1, 1, 0)
+				sprite.position = Vector3(0, 0, 0)
+				sprite.pixel_size = 0.002
+				sprite.visible = false
+				add_child(sprite)
+				image_sprites.append({"node": sprite, "name": fn})
+		fn = dir.get_next()
+	if image_sprites.size() > 0:
+		image_sprites[0]["node"].visible = true
+		image_target = 1.0
+
+
+func _cycle_image():
+	if image_sprites.size() == 0: return
+	# Hide current
+	if image_index < image_sprites.size():
+		image_sprites[image_index]["node"].visible = false
+	image_index = (image_index + 1) % image_sprites.size()
+	image_sprites[image_index]["node"].visible = true
+	image_target = 1.0
+	image_fade = 0.0
 
 
 # ═══════════════════════════════════════════
