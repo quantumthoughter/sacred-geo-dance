@@ -45,21 +45,16 @@ var rivers_visible: bool = true
 var galaxy_arms: int = 4
 var galaxy_particles: int = 3
 
-const PALETTE_NAMES = ["Cosmic", "Fire", "Aurora", "Neon", "Void"]
-const PALETTE_HUES = [0.0, 0.07, 0.4, 0.75, 0.58]
-const PALETTE_SATS = [0.85, 1.0, 0.9, 1.0, 0.35]
+const PALETTE_NAMES = ["Cosmic", "Fire", "Aurora", "Neon", "Void", "Prism", "Ocean", "Dawn"]
+const PALETTE_HUES = [0.0, 0.07, 0.4, 0.75, 0.58, 0.83, 0.55, 0.12]
+const PALETTE_SATS = [0.85, 1.0, 0.9, 1.0, 0.35, 0.95, 0.7, 0.8]
+const PALETTE_VALS = [0.9, 1.0, 0.95, 1.0, 0.8, 1.0, 0.85, 0.9]
 
 const MODE_NAMES = [
-	"Flower of Life 3D",
-	"Metatron's Cube",
-	"Platonic Solids",
-	"Torus Knot",
-	"Fibonacci Spiral",
-	"Cymatics Sphere",
-	"Merkaba",
-	"Seed of Life",
-	"Sri Yantra",
-	"Galaxy"
+	"Flower of Life 3D", "Metatron's Cube", "Platonic Solids",
+	"Torus Knot", "Fibonacci Spiral", "Cymatics Sphere",
+	"Merkaba", "Seed of Life", "Sri Yantra", "Galaxy",
+	"Cosmic Rivers"
 ]
 const PLATONIC_NAMES = ["Tetrahedron", "Cube", "Octahedron", "Dodecahedron", "Icosahedron"]
 
@@ -212,6 +207,7 @@ func _build_current_geometry():
 		7: _create_seed_of_life()
 		8: _create_sri_yantra()
 		9: _create_galaxy()
+		10: _create_cosmic_rivers()
 	_build_river_data()
 
 
@@ -685,6 +681,40 @@ func _create_galaxy():
 
 
 # ═══════════════════════════════════════════
+# MODE 10 — Cosmic Rivers
+# Flowing energy streams along sacred geometry paths
+# ═══════════════════════════════════════════
+func _create_cosmic_rivers():
+	var num_streams = 9
+	var pts_per_stream = 30
+	var radius = 3.0
+	var colors_hue = [0.55, 0.7, 0.85, 0.0, 0.15, 0.35, 0.5, 0.65, 0.8]
+
+	for s in num_streams:
+		var base_angle = s * TAU / num_streams
+		var stream_pts = []
+		for i in pts_per_stream:
+			var t = float(i) / pts_per_stream
+			var a = base_angle + sin(t * TAU * 2.0) * 0.5
+			var r = radius * (0.3 + t * 0.7)
+			var h = sin(t * TAU * 1.5) * 2.5
+			var pt = Vector3(cos(a) * r, h, sin(a) * r)
+			stream_pts.append(pt)
+			var sat = 0.5 + t * 0.5
+			var val = 0.6 + t * 0.4
+			_create_vertex(pt, 0.025 + t * 0.015, Color.from_hsv(colors_hue[s], sat, val))
+		for i in stream_pts.size() - 1:
+			_create_edge(stream_pts[i], stream_pts[i + 1], 0.005, Color(0.3, 0.5, 1.0, 0.6))
+	# Central pulsing core
+	for l in 5:
+		var lat = lerp(-1.0, 1.0, float(l) / 4.0)
+		for lo in 8:
+			var lon = lo * TAU / 8.0
+			var r = cos(lat) * 0.8
+			_create_vertex(Vector3(cos(lon)*r, sin(lat)*0.8, sin(lon)*r), 0.04, Color(0.6, 0.7, 1.0))
+
+
+# ═══════════════════════════════════════════
 # MAIN PROCESS LOOP
 # ═══════════════════════════════════════════
 func _process(delta):
@@ -732,25 +762,34 @@ func _process(delta):
 		else:
 			node.position = base_pos  # reset any prior displacement
 
-		# Universal pulse
-		var pulse = 1.0 + amp * 1.0 + beat_energy * 1.6 * (sin(time * 8.0 + phase) * 0.5 + 0.5)
-		node.scale = Vector3.ONE * pulse * 2.8
+		# Universal pulse — gentler, never disruptive
+		var pulse = 0.85 + amp * 0.5 + beat_energy * 0.8 * (sin(time * 6.0 + phase) * 0.5 + 0.5)
+		node.scale = Vector3.ONE * pulse * 2.5
 
-		# Color shift — centroid + palette drives hue
-		var palette = PALETTE_HUES[palette_index]
-		var sat_mul = PALETTE_SATS[palette_index]
-		var hue = fmod(centroid * 0.25 + time * 0.07 + phase * 0.15 + palette, 1.0)
-		var ec = Color.from_hsv(hue, clampf(sat_mul * 0.85, 0.0, 1.0), 1.0)
-		var brightness = 1.3 + amp * 2.0 + beat_energy * 4.0
+		# ── 16M Color System — procedural uniqueness per orb ──
+		var pal_hue = PALETTE_HUES[palette_index]
+		var pal_sat = PALETTE_SATS[palette_index]
+		var pal_val = PALETTE_VALS[palette_index]
+		# Seed from music: centroid (pitch), onset (rhythm), time, and orb position
+		var color_seed = centroid * 3.7 + onset_val * 2.3 + base_pos.x * 0.17 + base_pos.y * 0.13 + base_pos.z * 0.11 + phase * 0.07
+		# Gradient descent: slowly shift toward a target hue based on music
+		var target_hue = fmod(pal_hue + color_seed + time * 0.03, 1.0)
+		var current_hue = orb.get("color_hue", target_hue)
+		current_hue = lerpf(current_hue, target_hue, delta * 0.8)
+		orb["color_hue"] = current_hue
+		var sat = clampf(pal_sat * (0.6 + centroid * 0.4 + onset_val * 0.2), 0.15, 1.0)
+		var val = clampf(pal_val * (0.5 + amp * 0.4 + phase * 0.1), 0.3, 1.0)
+		var ec = Color.from_hsv(current_hue, sat, val)
+		var brightness = 1.1 + amp * 1.2 + beat_energy * 2.0
 		node.material_override.set_shader_parameter("albedo", ec)
 		node.material_override.set_shader_parameter("base_brightness", brightness)
-		node.material_override.set_shader_parameter("beat", beat_energy)
+		node.material_override.set_shader_parameter("beat", beat_energy * 0.6)
 
 	# ── Animate edges ──
 	for edge in edge_nodes:
 		var mat: ShaderMaterial = edge.material_override
 		if mat:
-			mat.set_shader_parameter("brightness", 0.3 + amp * 1.8 + beat_energy * 2.5)
+			mat.set_shader_parameter("brightness", 0.25 + amp * 1.2 + beat_energy * 1.5)
 
 	# ── Mode-specific rotation ──
 	if mode == 6:  # Merkaba counter-rotation
@@ -786,9 +825,10 @@ func _process(delta):
 	elif grid_cage:
 		grid_cage.visible = false
 
-	# ── Beat blast ──
-	if onset_val > 0.3 and beat_energy > 1.0:
+	# ── Celestial light pulse (rare, gentle) ──
+	if onset_val > 0.6 and beat_energy > 1.5:
 		_create_blast()
+		beat_energy *= 0.5  # dampen so it doesn't chain
 
 	# ── Camera orbit ──
 	if auto_orbit:
@@ -840,6 +880,7 @@ func _input(event: InputEvent):
 			KEY_8: _jump_mode(7); return
 			KEY_9: _jump_mode(8); return
 			KEY_0: _jump_mode(9); return
+			KEY_BACKSLASH: _jump_mode(10); return
 			KEY_R:
 				if mode == 2:
 					platonic_index = randi() % 5
