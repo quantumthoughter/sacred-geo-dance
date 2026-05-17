@@ -905,9 +905,9 @@ func _process(delta):
 		if not rivers_visible:
 			label.text += "   [no rivers]"
 		if input_recording:
-			label.text += "   ●REC"
+			label.text += "   ●REC(%d)" % input_events.size()
 		if replaying:
-			label.text += "   ▶REPLAY"
+			label.text += "   ▶REPLAY(%d/%d)" % [replay_index, replay_events.size()]
 
 
 # ═══════════════════════════════════════════
@@ -951,11 +951,10 @@ func _handle_key(keycode: int):
 		KEY_9: _jump_mode(8); return
 		KEY_0: _jump_mode(9); return
 		KEY_BACKSLASH: _jump_mode(10); return
-		KEY_Z:
+		KEY_K:
 			input_recording = not input_recording
 			if input_recording: input_events.clear()
-			else:
-				_save_replay()
+			else: _save_replay()
 			return
 		KEY_V:
 			recording = true; record_duration = 180.0; record_start = simulated_time
@@ -1260,9 +1259,12 @@ func _create_blast():
 func _save_replay():
 	var data = {"events": input_events}
 	var f = FileAccess.open(replay_file, FileAccess.WRITE)
-	var json = JSON.stringify(data)
-	f.store_string(json)
-	input_recording = false
+	if not f:
+		DirAccess.make_dir_recursive_absolute(replay_file.get_base_dir())
+		f = FileAccess.open(replay_file, FileAccess.WRITE)
+	if f:
+		f.store_string(JSON.stringify(data))
+		input_recording = false
 
 
 func _load_replay():
