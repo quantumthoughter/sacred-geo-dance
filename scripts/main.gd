@@ -58,6 +58,12 @@ var river_motes: Array = []
 var river_data: Array = []  # {fr, to, dir_norm, length}
 var rivers_visible: bool = true
 
+# ── Skybox ──
+var sky_index: int = 0
+var sky_paths: Array = []
+var sky_names: Array = []
+var sky_material: PanoramaSkyMaterial
+
 # ── Auto-switch by bars ──
 var auto_switch: bool = true
 var bars_per_switch: int = 4
@@ -943,6 +949,8 @@ func _process(delta):
 			label.text += "   ▶REPLAY(%d/%d)" % [replay_index, replay_events.size()]
 		if auto_switch:
 			label.text += "   [%dbars]" % bars_per_switch
+		if sky_names.size() > 0:
+			label.text += "   sky:%s" % sky_names[sky_index]
 
 
 # ═══════════════════════════════════════════
@@ -1018,6 +1026,10 @@ func _handle_key(keycode: int):
 			if mode == 9: galaxy_arms = clampi(galaxy_arms + 1, 2, 8); _build_current_geometry()
 			return
 		KEY_B: env_ref.glow_enabled = not env_ref.glow_enabled; return
+		KEY_S:
+			sky_index = (sky_index + 1) % sky_paths.size()
+			_apply_sky(sky_index)
+			return
 		KEY_F:
 			if DisplayServer.window_get_mode() == DisplayServer.WINDOW_MODE_FULLSCREEN:
 				DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_WINDOWED)
@@ -1120,24 +1132,25 @@ func _prev_song():
 
 
 func _create_skybox():
-	var sky = Sky.new()
-	var mat = PanoramaSkyMaterial.new()
-	var img = Image.load_from_file("res://music/evening_sky.exr")
-	if not img.is_empty():
-		mat.panorama = ImageTexture.create_from_image(img)
-	else:
-		# Fallback procedural
-		var pm = ProceduralSkyMaterial.new()
-		pm.sky_top_color = Color(0.02, 0.01, 0.08)
-		pm.sky_horizon_color = Color(0.06, 0.02, 0.12)
-		pm.ground_horizon_color = Color(0.02, 0.01, 0.05)
-		sky.sky_material = pm
-		env_ref.sky = sky
-		env_ref.background_mode = Environment.BG_SKY
-		return
-	sky.sky_material = mat
+	sky_paths = [
+		"res://music/evening_sky.exr",
+		"res://music/night_sky.exr",
+		"res://music/sunset_8k.hdr",
+	]
+	sky_names = ["Evening Dusk", "Night Sky", "Sunset"]
+	sky_material = PanoramaSkyMaterial.new()
+	var sky = Sky.new(); sky.sky_material = sky_material
 	env_ref.sky = sky
 	env_ref.background_mode = Environment.BG_SKY
+	_apply_sky(0)
+
+
+func _apply_sky(idx: int):
+	if idx < 0 or idx >= sky_paths.size(): return
+	sky_index = idx
+	var img = Image.load_from_file(sky_paths[idx])
+	if not img.is_empty():
+		sky_material.panorama = ImageTexture.create_from_image(img)
 
 
 # ═══════════════════════════════════════════
