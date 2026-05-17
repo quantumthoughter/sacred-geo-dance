@@ -6,6 +6,7 @@ var dance_data: DanceData
 var time: float = 0.0
 var beat_energy: float = 0.0
 var speed_mult: float = 1.0
+var simulated_time: float = 0.0  # for MovieWriter recording
 
 # ── Camera ──
 var cam: Camera3D
@@ -722,9 +723,15 @@ func _process(delta):
 	if Input.is_key_pressed(KEY_SHIFT):
 		delta *= 0.15
 	time += delta
-	if not audio.playing: return
 
-	var t = audio.get_playback_position()
+	# Simulated playback for MovieWriter recording
+	var t = 0.0
+	if audio.playing:
+		t = audio.get_playback_position()
+	else:
+		simulated_time += delta
+		t = simulated_time
+
 	var feat = {"onset": 0, "rms": 0.5, "centroid": 0.5}
 	if dance_data: feat = dance_data.feat_at(t)
 
