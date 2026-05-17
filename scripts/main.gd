@@ -58,6 +58,13 @@ var river_motes: Array = []
 var river_data: Array = []  # {fr, to, dir_norm, length}
 var rivers_visible: bool = true
 
+# ── Auto-switch by bars ──
+var auto_switch: bool = true
+var bars_per_switch: int = 4
+var beat_counter: int = 0
+var bar_counter: int = 0
+var last_onset: float = 0.0
+
 # ── Galaxy ──
 var galaxy_arms: int = 4
 var galaxy_particles: int = 3
@@ -142,6 +149,11 @@ func _setup_scene():
 	audio = AudioStreamPlayer.new()
 	add_child(audio)
 
+	# Real-time spectrum analyzer on Master bus
+	var spec = AudioEffectSpectrumAnalyzer.new()
+	spec.buffer_length = 1.0
+	AudioServer.add_bus_effect(AudioServer.get_bus_index("Master"), spec, 0)
+
 	# Environment — rich cosmic void
 	var env = WorldEnvironment.new()
 	env_ref = Environment.new()
@@ -160,6 +172,9 @@ func _setup_scene():
 	env_ref.volumetric_fog_emission_energy = 0.3
 	env.environment = env_ref
 	add_child(env)
+
+	# Celestial skybox
+	_create_skybox()
 
 	# Camera
 	cam = Camera3D.new()
@@ -609,60 +624,67 @@ func _create_seed_of_life():
 # 9 interlocking triangles (4 up + 5 down), central bindu
 # ═══════════════════════════════════════════
 func _create_sri_yantra():
-	# Central bindu
-	_create_vertex(Vector3.ZERO, 0.1, Color(1, 0.9, 0.3))
+	# Central bindu — the primordial point
+	_create_vertex(Vector3.ZERO, 0.12, Color(1, 0.95, 0.2))
 
-	# 4 upward triangles (Shiva) + 5 downward triangles (Shakti)
-	var all_tris = []
-	var scales_up = [0.5, 1.0, 1.6, 2.3]
-	var scales_dn = [0.75, 1.25, 1.85, 2.55, 3.0]
-	var base_angle = 0.0
+	# 9 interlocking triangles — 4 Shiva (up) + 5 Shakti (down)
+	# Traditional scaling for precise intersection
+	var up_scales = [0.45, 1.05, 1.7, 2.4]
+	var dn_scales = [0.7, 1.3, 1.95, 2.65, 3.1]
 
-	# Upward triangles (pointing +Y)
-	for i in scales_up.size():
-		var s = scales_up[i]
-		var angle = base_angle + i * PI / 9.0
-		var pts = _make_triangle_points(s, angle, true, 0.1 * i)
-		all_tris += pts
-		var col = Color(1, 0.35, 0.2).lerp(Color(1, 0.8, 0.2), float(i) / scales_up.size())
-		for p in pts: _create_vertex(p, 0.04, col)
-		_connect_vertices(pts, s * 2.0, col, 0.005)
+	# Upward triangles — Shiva (fire aspect)
+	for i in up_scales.size():
+		var s = up_scales[i]
+		var angle = i * PI / 8.0
+		var pts = _tri_pts(s, angle, true, i * 0.08)
+		var hue = 0.08 + i * 0.03
+		for p in pts: _create_vertex(p, 0.04, Color.from_hsv(hue, 0.9, 1.0))
+		_connect_vertices(pts, s * 2.0, Color(1, 0.5, 0.1, 0.7), 0.005)
 
-	# Downward triangles (pointing -Y)
-	for i in scales_dn.size():
-		var s = scales_dn[i]
-		var angle = base_angle + PI / 6.0 + i * PI / 9.0
-		var pts = _make_triangle_points(s, angle, false, 0.1 * i)
-		all_tris += pts
-		var col = Color(0.2, 0.5, 1.0).lerp(Color(0.6, 0.2, 1.0), float(i) / scales_dn.size())
-		for p in pts: _create_vertex(p, 0.04, col)
-		_connect_vertices(pts, s * 2.0, col, 0.005)
+	# Downward triangles — Shakti (water aspect)
+	for i in dn_scales.size():
+		var s = dn_scales[i]
+		var angle = PI / 6.0 + i * PI / 8.0
+		var pts = _tri_pts(s, angle, false, i * 0.08)
+		var hue = 0.55 + i * 0.03
+		for p in pts: _create_vertex(p, 0.04, Color.from_hsv(hue, 0.8, 1.0))
+		_connect_vertices(pts, s * 2.0, Color(0.2, 0.5, 1.0, 0.7), 0.005)
 
-	# 8-petal lotus ring
+	# 8-petal inner lotus
 	for i in 8:
 		var a = i * TAU / 8.0
-		var p = Vector3(cos(a) * 3.3, 0, sin(a) * 3.3)
-		_create_vertex(p, 0.045, Color(1, 0.5, 0.8))
+		for ring in [3.25, 3.4]:
+			var p = Vector3(cos(a) * ring, 0, sin(a) * ring)
+			_create_vertex(p, 0.025, Color(1, 0.55, 0.7))
 
-	# Outer square gate
-	var sq_size = 3.6
-	var sq_pts = [
-		Vector3(-sq_size, -0.3, -sq_size), Vector3(sq_size, -0.3, -sq_size),
-		Vector3(sq_size, -0.3, sq_size), Vector3(-sq_size, -0.3, sq_size),
-	]
+	# 16-petal outer lotus
+	for i in 16:
+		var a = i * TAU / 16.0
+		for ring in [3.6, 3.8]:
+			var p = Vector3(cos(a) * ring, (ring - 3.6) * 0.3, sin(a) * ring)
+			_create_vertex(p, 0.02, Color(0.8, 0.5, 1.0))
+
+	# Outer square with T-shaped gates (Bhupura)
+	var sq = 4.1
+	var sq_pts = [Vector3(-sq, 0, -sq), Vector3(sq, 0, -sq), Vector3(sq, 0, sq), Vector3(-sq, 0, sq)]
 	for i in 4:
-		_create_vertex(sq_pts[i], 0.035, Color(0.8, 0.6, 1.0))
-		_create_edge(sq_pts[i], sq_pts[(i + 1) % 4], 0.004, Color(0.6, 0.4, 1.0))
+		_create_vertex(sq_pts[i], 0.04, Color(0.7, 0.5, 1.0))
+		_create_edge(sq_pts[i], sq_pts[(i + 1) % 4], 0.005, Color(0.5, 0.3, 0.9))
+		# T-gate protrusions at each side midpoint
+		var mid = (sq_pts[i] + sq_pts[(i + 1) % 4]) / 2.0
+		var outward = mid.normalized() * 0.3
+		_create_vertex(mid + outward, 0.025, Color(0.6, 0.4, 1.0))
+		_create_vertex(mid + outward * 1.5, 0.02, Color(0.5, 0.3, 0.9))
 
 
-func _make_triangle_points(scale: float, angle: float, up: bool, z_off: float) -> Array:
-	var y_sign = 1.0 if up else -1.0
-	var pts = [
-		Vector3(0, y_sign * scale, z_off),
-		Vector3(cos(-PI/6.0 + angle) * scale, y_sign * (-scale * 0.5), sin(-PI/6.0 + angle) * scale + z_off),
-		Vector3(cos(PI * 7.0/6.0 + angle) * scale, y_sign * (-scale * 0.5), sin(PI * 7.0/6.0 + angle) * scale + z_off),
+func _tri_pts(scale: float, angle: float, up: bool, z_off: float) -> Array:
+	var y = scale if up else -scale
+	var h = -scale * 0.5 if up else scale * 0.5
+	return [
+		Vector3(0, y, z_off),
+		Vector3(cos(-PI/6.0 + angle) * scale, h, sin(-PI/6.0 + angle) * scale + z_off),
+		Vector3(cos(PI * 7.0/6.0 + angle) * scale, h, sin(PI * 7.0/6.0 + angle) * scale + z_off),
 	]
-	return pts
 
 
 # ═══════════════════════════════════════════
@@ -780,6 +802,18 @@ func _process(delta):
 	var amp = feat["rms"] * 2.5
 	var onset_val = feat["onset"]
 	var centroid = feat["centroid"]
+
+	# Bar counting & auto-switch
+	if auto_switch and onset_val > 0.3 and last_onset < 0.3:
+		beat_counter += 1
+		if beat_counter >= 4:
+			bar_counter += 1
+			beat_counter = 0
+			if bar_counter >= bars_per_switch:
+				bar_counter = 0
+				mode = (mode + 1) % MODE_NAMES.size()
+				_build_current_geometry()
+	last_onset = onset_val
 
 	# Beat energy — smoothed onset for punchy transients
 	beat_energy = lerp(beat_energy, onset_val * 3.5, delta * 9.0)
@@ -907,6 +941,8 @@ func _process(delta):
 			label.text += "   ●REC(%d)" % input_events.size()
 		if replaying:
 			label.text += "   ▶REPLAY(%d/%d)" % [replay_index, replay_events.size()]
+		if auto_switch:
+			label.text += "   [%dbars]" % bars_per_switch
 
 
 # ═══════════════════════════════════════════
@@ -952,6 +988,9 @@ func _handle_key(keycode: int):
 		KEY_BACKSLASH: _jump_mode(10); return
 		KEY_P: _prev_song(); return
 		KEY_N: _next_song(); return
+		KEY_A: auto_switch = not auto_switch; return
+		KEY_BRACKETLEFT: bars_per_switch = maxi(1, bars_per_switch - 1); return
+		KEY_BRACKETRIGHT: bars_per_switch = mini(16, bars_per_switch + 1); return
 		KEY_K:
 			if replaying: return
 			input_recording = not input_recording
@@ -1078,6 +1117,18 @@ func _prev_song():
 	_load_song(current_song)
 	_build_current_geometry()
 	audio.play()
+
+
+func _create_skybox():
+	var sky = Sky.new()
+	var mat = ProceduralSkyMaterial.new()
+	mat.sky_top_color = Color(0.02, 0.01, 0.08)
+	mat.sky_horizon_color = Color(0.04, 0.01, 0.12)
+	mat.ground_horizon_color = Color(0.01, 0.005, 0.04)
+	mat.ground_bottom_color = Color(0.005, 0.002, 0.02)
+	sky.sky_material = mat
+	env_ref.sky = sky
+	env_ref.background_mode = Environment.BG_SKY
 
 
 # ═══════════════════════════════════════════
