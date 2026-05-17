@@ -12,7 +12,7 @@ MP4="${NAME}.mp4"
 echo "🎬 Recording at 30fps 960x540..."
 echo "   ~6-8 min render for ~3.3 min video"
 
-$GODOT --path . --write-movie "$AVI" --fixed-fps 30 2>/dev/null
+$GODOT --path . --write-movie "$AVI" 2>/dev/null
 
 if [ ! -f "$AVI" ]; then
   echo "❌ Recording failed"

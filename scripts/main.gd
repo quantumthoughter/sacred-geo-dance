@@ -756,7 +756,6 @@ func _process(delta):
 		if not recording:
 			recording = true
 			record_duration = 199.0
-			record_start = 0.0
 		simulated_time += delta
 		t = simulated_time
 
