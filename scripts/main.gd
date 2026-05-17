@@ -118,6 +118,12 @@ func _ready():
 		_load_replay()
 
 
+func _notification(what):
+	if what == NOTIFICATION_WM_CLOSE_REQUEST or what == NOTIFICATION_PREDELETE:
+		if input_recording and input_events.size() > 0:
+			_save_replay()
+
+
 func _setup_scene():
 	# Audio player
 	audio = AudioStreamPlayer.new()
