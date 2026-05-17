@@ -59,11 +59,20 @@ var river_data: Array = []  # {fr, to, dir_norm, length}
 var rivers_visible: bool = true
 
 # ── Image overlays ──
-var image_sprites: Array = []
+var image_meshes: Array = []
 var image_index: int = 0
 var images_visible: bool = false
 var image_fade: float = 0.0
 var image_target: float = 0.0
+var image_shader: ShaderMaterial
+var kaleido_segments: int = 8
+var dissolve_amount: float = 1.0
+
+# ── Video clips ──
+var video_player: VideoStreamPlayer
+var video_mesh: MeshInstance3D
+var video_visible: bool = false
+var video_shader: ShaderMaterial
 var sky_index: int = 0
 var sky_paths: Array = []
 var sky_names: Array = []
@@ -957,20 +966,33 @@ func _process(delta):
 			label.text += "   [%dbars]" % bars_per_switch
 		if sky_names.size() > 0:
 			label.text += "   sky:%s" % sky_names[sky_index]
-		if images_visible and image_sprites.size() > 0:
-			label.text += "   img:%s" % image_sprites[image_index]["name"]
+		if images_visible and image_meshes.size() > 0:
+			label.text += "   img:%s" % image_meshes[image_index]["name"]
+		if video_visible:
+			label.text += "   [vid]"
 
-	# ── Image overlay animation ──
-	if image_sprites.size() > 0:
-		var sprite: Sprite3D = image_sprites[image_index]["node"]
-		image_fade = lerpf(image_fade, image_target, delta * 3.0)
-		var alpha = clampf(image_fade, 0.0, 0.85)
-		sprite.modulate = Color(1, 1, 1, alpha)
-		# Gentle floating + scale pulse with beat
-		var scale_pulse = 1.0 + amp * 0.3 + beat_energy * 0.5 * (sin(time * 4 + image_index) * 0.5 + 0.5)
-		sprite.scale = Vector3.ONE * scale_pulse
-		sprite.position.y = sin(time * 0.5 + image_index) * 0.3
-		sprite.rotate_y(delta * 0.1)  # slow rotation
+	# ── Image / Video animation ──
+	if image_meshes.size() > 0 and images_visible:
+		var im = image_meshes[image_index]
+		var node: MeshInstance3D = im["node"]
+		var mat: ShaderMaterial = im["mat"]
+		dissolve_amount = lerpf(dissolve_amount, image_target, delta * 2.5)
+		mat.set_shader_parameter("dissolve", dissolve_amount)
+		mat.set_shader_parameter("rotation", time * 0.3 * (0.5 + beat_energy))
+		mat.set_shader_parameter("beat", beat_energy)
+		mat.set_shader_parameter("sparkle", 0.3 + beat_energy * 0.5)
+		mat.set_shader_parameter("zoom", 0.8 + amp * 0.3)
+		node.scale = Vector3.ONE * (0.9 + amp * 0.2)
+		node.position.y = sin(time * 0.4 + image_index) * 0.3
+		node.look_at(cam.global_position, Vector3.UP)
+	if video_visible and video_mesh:
+		dissolve_amount = lerpf(dissolve_amount, image_target, delta * 2.5)
+		video_shader.set_shader_parameter("dissolve", dissolve_amount)
+		video_shader.set_shader_parameter("rotation", time * 0.3 * (0.5 + beat_energy))
+		video_shader.set_shader_parameter("beat", beat_energy)
+		video_shader.set_shader_parameter("sparkle", 0.3 + beat_energy * 0.5)
+		video_shader.set_shader_parameter("zoom", 0.8 + amp * 0.3)
+		video_mesh.look_at(cam.global_position, Vector3.UP)
 
 
 # ═══════════════════════════════════════════
@@ -1053,11 +1075,21 @@ func _handle_key(keycode: int):
 		KEY_I:
 			images_visible = not images_visible
 			image_target = 1.0 if images_visible else 0.0
-			if image_sprites.size() > 0:
-				image_sprites[image_index]["node"].visible = images_visible
+			if image_meshes.size() > 0:
+				image_meshes[image_index]["node"].visible = images_visible
 			return
 		KEY_O:
 			if images_visible: _cycle_image()
+			return
+		KEY_L:
+			kaleido_segments = kaleido_segments + 2
+			if kaleido_segments > 24: kaleido_segments = 4
+			_apply_kaleido()
+			return
+		KEY_J:
+			video_visible = not video_visible
+			image_target = 1.0 if video_visible else 0.0
+			if video_mesh: video_mesh.visible = video_visible
 			return
 		KEY_F:
 			if DisplayServer.window_get_mode() == DisplayServer.WINDOW_MODE_FULLSCREEN:
@@ -1186,7 +1218,9 @@ func _apply_sky(idx: int):
 # IMAGE OVERLAYS — billboarded sacred art in 3D
 # ═══════════════════════════════════════════
 func _scan_images():
-	image_sprites.clear()
+	image_meshes.clear()
+	image_shader = ShaderMaterial.new()
+	image_shader.shader = load("res://shaders/image_magic.gdshader")
 	var dir = DirAccess.open("res://images")
 	if not dir: return
 	dir.list_dir_begin()
@@ -1195,30 +1229,66 @@ func _scan_images():
 		if fn.get_extension() in ["png", "jpg", "jpeg"]:
 			var tex = load("res://images/" + fn)
 			if tex:
-				var sprite = Sprite3D.new()
-				sprite.texture = tex
-				sprite.billboard = BaseMaterial3D.BILLBOARD_ENABLED
-				sprite.modulate = Color(1, 1, 1, 0)
-				sprite.position = Vector3(0, 0, 0)
-				sprite.pixel_size = 0.002
-				sprite.visible = false
-				add_child(sprite)
-				image_sprites.append({"node": sprite, "name": fn})
+				var mesh = MeshInstance3D.new()
+				var quad = QuadMesh.new(); quad.size = Vector2(4, 4)
+				mesh.mesh = quad
+				var mat = image_shader.duplicate()
+				mat.set_shader_parameter("image_tex", tex)
+				mat.set_shader_parameter("mirror_segments", kaleido_segments)
+				mat.set_shader_parameter("dissolve", 0.0)
+				mat.set_shader_parameter("edge_softness", 0.4)
+				mesh.material_override = mat
+				mesh.visible = false
+				add_child(mesh)
+				image_meshes.append({"node": mesh, "mat": mat, "name": fn})
 		fn = dir.get_next()
-	if image_sprites.size() > 0:
-		image_sprites[0]["node"].visible = true
-		image_target = 1.0
+	if image_meshes.size() > 0:
+		image_meshes[0]["node"].visible = true
+		dissolve_amount = 0.0
+		image_fade = 0.0
+	# Video
+	video_player = VideoStreamPlayer.new(); video_player.name = "VideoPlayer"
+	add_child(video_player)
+	video_shader = ShaderMaterial.new()
+	video_shader.shader = load("res://shaders/image_magic.gdshader")
+	var vmesh = MeshInstance3D.new()
+	var vquad = QuadMesh.new(); vquad.size = Vector2(4, 4)
+	vmesh.mesh = vquad; vmesh.material_override = video_shader; vmesh.visible = false
+	add_child(vmesh); video_mesh = vmesh
 
 
 func _cycle_image():
-	if image_sprites.size() == 0: return
-	# Hide current
-	if image_index < image_sprites.size():
-		image_sprites[image_index]["node"].visible = false
-	image_index = (image_index + 1) % image_sprites.size()
-	image_sprites[image_index]["node"].visible = true
+	if image_meshes.size() == 0: return
+	if image_index < image_meshes.size():
+		image_meshes[image_index]["node"].visible = false
+	image_index = (image_index + 1) % image_meshes.size()
+	image_meshes[image_index]["node"].visible = true
+	dissolve_amount = 0.0
 	image_target = 1.0
-	image_fade = 0.0
+	_apply_kaleido()
+
+
+func _apply_kaleido():
+	for im in image_meshes:
+		im["mat"].set_shader_parameter("mirror_segments", kaleido_segments)
+	if video_shader:
+		video_shader.set_shader_parameter("mirror_segments", kaleido_segments)
+
+
+func _load_video_clip():
+	var fd = FileDialog.new(); fd.access = FileDialog.ACCESS_FILESYSTEM
+	fd.file_mode = FileDialog.FILE_MODE_OPEN_FILE
+	fd.add_filter("*.mp4,*.ogv,*.webm", "Videos")
+	fd.file_selected.connect(_on_video_selected); add_child(fd); fd.popup_centered(Vector2(600, 400))
+
+
+func _on_video_selected(path: String):
+	var vs = load(path)
+	if vs:
+		video_player.stream = vs; video_player.play()
+		video_mesh.visible = true; video_visible = true
+		dissolve_amount = 0.0
+		_apply_kaleido()
 
 
 # ═══════════════════════════════════════════
