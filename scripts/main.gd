@@ -1053,6 +1053,7 @@ func _load_song(idx: int):
 
 
 func _next_song():
+	if songs.size() == 0: return
 	current_song = (current_song + 1) % songs.size()
 	_load_song(current_song)
 	_build_current_geometry()
@@ -1060,6 +1061,7 @@ func _next_song():
 
 
 func _prev_song():
+	if songs.size() == 0: return
 	current_song = (current_song - 1 + songs.size()) % songs.size()
 	_load_song(current_song)
 	_build_current_geometry()

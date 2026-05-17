@@ -1,0 +1,19 @@
+[remap]
+
+importer="mp3"
+type="AudioStreamMP3"
+uid="uid://c64ne33n5esi0"
+path="res://.godot/imported/Hung! 2.mp3-99f0f1db2d5fa1dff637ba88128f0133.mp3str"
+
+[deps]
+
+source_file="res://music/Hung! 2.mp3"
+dest_files=["res://.godot/imported/Hung! 2.mp3-99f0f1db2d5fa1dff637ba88128f0133.mp3str"]
+
+[params]
+
+loop=false
+loop_offset=0
+bpm=0
+beat_count=0
+bar_beats=4
