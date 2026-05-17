@@ -11,6 +11,15 @@ var recording: bool = false
 var record_duration: float = 0.0
 var record_start: float = 0.0
 
+# ── Input Recording & Replay ──
+var input_recording: bool = false
+var input_events: Array = []  # {time, keycode, pressed}
+var input_record_start: float = 0.0
+var replaying: bool = false
+var replay_events: Array = []
+var replay_index: int = 0
+var replay_file: String = "user://replay.json"
+
 # ── Camera ──
 var cam: Camera3D
 var cam_theta: float = 0.0
@@ -104,6 +113,9 @@ func _ready():
 	_setup_scene()
 	_build_current_geometry()
 	audio.play()
+	# If MovieWriter mode, try loading a replay
+	if not audio.playing:
+		_load_replay()
 
 
 func _setup_scene():
@@ -743,6 +755,16 @@ func _process(delta):
 	if recording and simulated_time >= record_duration:
 		get_tree().quit()
 
+	# ── Process replay events ──
+	if replaying and replay_index < replay_events.size():
+		while replay_index < replay_events.size():
+			var ev = replay_events[replay_index]
+			if ev["time"] > t: break
+			var ke = InputEventKey.new()
+			ke.keycode = ev["keycode"]; ke.pressed = ev["pressed"]
+			_input(ke)  # feed into normal input handler
+			replay_index += 1
+
 	var feat = {"onset": 0, "rms": 0.5, "centroid": 0.5}
 	if dance_data: feat = dance_data.feat_at(t)
 
@@ -872,13 +894,24 @@ func _process(delta):
 			label.text += "   [cage]"
 		if not rivers_visible:
 			label.text += "   [no rivers]"
+		if input_recording:
+			label.text += "   ●REC"
+		if replaying:
+			label.text += "   ▶REPLAY"
 
 
 # ═══════════════════════════════════════════
 # INPUT — play the geometries like an instrument
 # ═══════════════════════════════════════════
 func _input(event: InputEvent):
-	# ── Keyboard ──
+	# ── Record input for replay ──
+	if input_recording and event is InputEventKey:
+		var t = audio.get_playback_position() if audio.playing else simulated_time
+		input_events.append({"time": t, "keycode": event.keycode, "pressed": event.pressed})
+
+	# ── Ignore input during replay ──
+	if replaying: return
+
 	if event is InputEventKey and event.pressed:
 		match event.keycode:
 			KEY_TAB:
@@ -899,6 +932,14 @@ func _input(event: InputEvent):
 			KEY_9: _jump_mode(8); return
 			KEY_0: _jump_mode(9); return
 			KEY_BACKSLASH: _jump_mode(10); return
+			KEY_Z:
+				input_recording = not input_recording
+				if input_recording:
+					input_events.clear()
+					input_record_start = audio.get_playback_position()
+				else:
+					_save_replay()
+				return
 			KEY_V:
 				recording = true
 				record_duration = 180.0  # 3 minutes
@@ -1237,3 +1278,26 @@ func _create_blast():
 		add_child(mesh)
 		var timer = get_tree().create_timer(0.35)
 		timer.timeout.connect(func(): mesh.queue_free())
+
+
+# ═══════════════════════════════════════════
+# INPUT REPLAY — record your performance, replay for video
+# ═══════════════════════════════════════════
+func _save_replay():
+	var data = {"events": input_events}
+	var f = FileAccess.open(replay_file, FileAccess.WRITE)
+	var json = JSON.stringify(data)
+	f.store_string(json)
+	input_recording = false
+
+
+func _load_replay():
+	if not FileAccess.file_exists(replay_file): return
+	var f = FileAccess.open(replay_file, FileAccess.READ)
+	var j = JSON.new(); j.parse(f.get_as_text())
+	var d = j.get_data()
+	replay_events = d.get("events", [])
+	if replay_events.size() > 0:
+		replaying = true
+		recording = true
+		record_duration = 199.0
