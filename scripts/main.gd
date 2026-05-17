@@ -1029,16 +1029,28 @@ func _scan_songs():
 	songs.clear()
 	var dir = DirAccess.open("res://music")
 	if not dir: return
+
+	# First, find all .dance files — they're our song index
 	dir.list_dir_begin()
 	var fn = dir.get_next()
 	while fn != "":
-		if fn.get_extension() in ["mp3", "wav"]:
+		if fn.get_extension() == "dance":
+			# Find matching mp3/wav by trying common naming patterns
 			var base = fn.get_basename()
-			var dance_path = "res://music/" + base + ".dance"
-			var quantum_path = "res://music/" + base + ".quantum"
-			if FileAccess.file_exists(dance_path) or FileAccess.file_exists(quantum_path):
-				songs.append({"name": base, "mp3": "res://music/" + fn, "dance": dance_path, "quantum": quantum_path})
+			var mp3_path = _find_audio("res://music/" + base)
+			if mp3_path != "":
+				songs.append({"name": base, "mp3": mp3_path, "dance": "res://music/" + fn, "quantum": ""})
 		fn = dir.get_next()
+
+
+func _find_audio(base_path: String) -> String:
+	for ext in ["mp3", "wav", "ogg"]:
+		var p = base_path + "." + ext
+		if FileAccess.file_exists(p): return p
+		# Try underscores → spaces
+		var spaced = base_path.replace("_", " ") + "." + ext
+		if FileAccess.file_exists(spaced): return spaced
+	return ""
 
 
 func _load_song(idx: int):
@@ -1048,8 +1060,8 @@ func _load_song(idx: int):
 	var mp3 = load(s["mp3"])
 	if mp3: audio.stream = mp3
 	song_name = s["name"]
-	# Load dance data
-	dance_data = DanceData.load_file(s["dance"])
+	if s["dance"] != "":
+		dance_data = DanceData.load_file(s["dance"])
 
 
 func _next_song():
