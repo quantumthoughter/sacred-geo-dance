@@ -766,9 +766,8 @@ func _process(delta):
 		while replay_index < replay_events.size():
 			var ev = replay_events[replay_index]
 			if ev["time"] > t: break
-			var ke = InputEventKey.new()
-			ke.keycode = ev["keycode"]; ke.pressed = ev["pressed"]
-			_input(ke)  # feed into normal input handler
+			if ev["pressed"]:
+				_handle_key(ev["keycode"])
 			replay_index += 1
 
 	var feat = {"onset": 0, "rms": 0.5, "centroid": 0.5}
@@ -915,136 +914,95 @@ func _input(event: InputEvent):
 		var t = audio.get_playback_position() if audio.playing else simulated_time
 		input_events.append({"time": t, "keycode": event.keycode, "pressed": event.pressed})
 
-	# ── Ignore input during replay ──
-	if replaying: return
-
 	if event is InputEventKey and event.pressed:
-		match event.keycode:
-			KEY_TAB:
-				_cycle_mode()
-				return
-			KEY_SPACE:
-				_create_blast()
-				beat_energy = 2.0  # surge
-				return
-			KEY_1: _jump_mode(0); return
-			KEY_2: _jump_mode(1); return
-			KEY_3: _jump_mode(2); return
-			KEY_4: _jump_mode(3); return
-			KEY_5: _jump_mode(4); return
-			KEY_6: _jump_mode(5); return
-			KEY_7: _jump_mode(6); return
-			KEY_8: _jump_mode(7); return
-			KEY_9: _jump_mode(8); return
-			KEY_0: _jump_mode(9); return
-			KEY_BACKSLASH: _jump_mode(10); return
-			KEY_Z:
-				input_recording = not input_recording
-				if input_recording:
-					input_events.clear()
-					input_record_start = audio.get_playback_position()
-				else:
-					_save_replay()
-				return
-			KEY_V:
-				recording = true
-				record_duration = 180.0  # 3 minutes
-				record_start = simulated_time
-				return
-			KEY_R:
-				if mode == 2:
-					platonic_index = randi() % 5
-				elif mode == 3:
-					torus_p = randi() % 10 + 1
-					torus_q = randi() % 10 + 1
-				_build_current_geometry()
-				return
-			KEY_M:
-				mouse_cam = not mouse_cam
-				auto_orbit = mouse_cam
-				return
-			KEY_C:
-				palette_index = (palette_index + 1) % PALETTE_NAMES.size()
-				return
-			KEY_G:
-				cage_visible = not cage_visible
-				return
-			KEY_H:
-				rivers_visible = not rivers_visible
-				if not rivers_visible: _clear_river_motes()
-				else: _build_river_data()
-				return
-			KEY_E:
-				if mode == 9:
-					galaxy_arms = clampi(galaxy_arms + 1, 2, 8)
-					_build_current_geometry()
-				return
-			KEY_B:
-				env_ref.glow_enabled = not env_ref.glow_enabled
-				return
-			KEY_F:
-				if DisplayServer.window_get_mode() == DisplayServer.WINDOW_MODE_FULLSCREEN:
-					DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_WINDOWED)
-				else:
-					DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_FULLSCREEN)
-				return
-			KEY_UP:
-				if mode == 3:
-					torus_p = clampi(torus_p + 1, 1, 12); _build_current_geometry()
-				else:
-					speed_mult = minf(speed_mult + 0.05, 3.0)
-				return
-			KEY_DOWN:
-				if mode == 3:
-					torus_p = clampi(torus_p - 1, 1, 12); _build_current_geometry()
-				else:
-					speed_mult = maxf(speed_mult - 0.05, 0.05)
-				return
-			KEY_RIGHT, KEY_PERIOD:
-				if mode == 2:
-					platonic_index = (platonic_index + 1) % 5; _build_current_geometry()
-				elif mode == 3:
-					torus_q = clampi(torus_q + 1, 1, 12); _build_current_geometry()
-				return
-			KEY_LEFT, KEY_COMMA:
-				if mode == 2:
-					platonic_index = (platonic_index - 1) % 5; _build_current_geometry()
-				elif mode == 3:
-					torus_q = clampi(torus_q - 1, 1, 12); _build_current_geometry()
-				return
-			KEY_EQUAL, KEY_PLUS, KEY_KP_ADD:
-				speed_mult = minf(speed_mult + 0.05, 3.0); return
-			KEY_MINUS, KEY_KP_SUBTRACT:
-				speed_mult = maxf(speed_mult - 0.05, 0.05); return
-			KEY_PAGEDOWN:
-				speed_mult = maxf(speed_mult - 0.5, 0.05); return
-			KEY_PAGEUP:
-				speed_mult = minf(speed_mult + 0.5, 3.0); return
+		_handle_key(event.keycode)
 
-	# ── Mouse drag — free orbit ──
-	if not mouse_cam: return
-	if event is InputEventMouseButton:
-		if event.button_index == MOUSE_BUTTON_LEFT:
-			if event.pressed:
-				mouse_dragging = true
-				mouse_last = event.position
-				auto_orbit = false
+	if not replaying:
+		if event is InputEventMouseButton:
+			if event.button_index == MOUSE_BUTTON_LEFT:
+				if event.pressed: mouse_dragging = true; mouse_last = event.position; auto_orbit = false
+				else:
+					mouse_dragging = false
+			elif event.button_index == MOUSE_BUTTON_WHEEL_UP: cam_radius = maxf(cam_radius - 0.5, 2.0); auto_orbit = false
+			elif event.button_index == MOUSE_BUTTON_WHEEL_DOWN: cam_radius = minf(cam_radius + 0.5, 18.0); auto_orbit = false
+			elif event.button_index == MOUSE_BUTTON_RIGHT and event.pressed: auto_orbit = not auto_orbit
+		elif event is InputEventMouseMotion and mouse_dragging:
+			var dm = event.position - mouse_last; mouse_last = event.position
+			cam_theta -= dm.x * 0.005; cam_phi += dm.y * 0.005; cam_phi = clamp(cam_phi, -1.4, 1.4)
+
+
+func _handle_key(keycode: int):
+	match keycode:
+		KEY_TAB: _cycle_mode(); return
+		KEY_SPACE: beat_energy = 3.0; return
+		KEY_1: _jump_mode(0); return
+		KEY_2: _jump_mode(1); return
+		KEY_3: _jump_mode(2); return
+		KEY_4: _jump_mode(3); return
+		KEY_5: _jump_mode(4); return
+		KEY_6: _jump_mode(5); return
+		KEY_7: _jump_mode(6); return
+		KEY_8: _jump_mode(7); return
+		KEY_9: _jump_mode(8); return
+		KEY_0: _jump_mode(9); return
+		KEY_BACKSLASH: _jump_mode(10); return
+		KEY_Z:
+			input_recording = not input_recording
+			if input_recording: input_events.clear()
 			else:
-				mouse_dragging = false
-		elif event.button_index == MOUSE_BUTTON_WHEEL_UP:
-			cam_radius = maxf(cam_radius - 0.5, 2.0)
-			auto_orbit = false
-		elif event.button_index == MOUSE_BUTTON_WHEEL_DOWN:
-			cam_radius = minf(cam_radius + 0.5, 18.0)
-			auto_orbit = false
-		elif event.button_index == MOUSE_BUTTON_RIGHT and event.pressed:
-			auto_orbit = not auto_orbit
-	elif event is InputEventMouseMotion and mouse_dragging:
-		var delta_m = event.position - mouse_last
-		mouse_last = event.position
-		cam_theta -= delta_m.x * 0.005
-		cam_phi += delta_m.y * 0.005
-		cam_phi = clamp(cam_phi, -1.4, 1.4)
+				_save_replay()
+			return
+		KEY_V:
+			recording = true; record_duration = 180.0; record_start = simulated_time
+			return
+		KEY_R:
+			if mode == 2: platonic_index = randi() % 5
+			elif mode == 3: torus_p = randi() % 10 + 1; torus_q = randi() % 10 + 1
+			_build_current_geometry(); return
+		KEY_M: mouse_cam = not mouse_cam; auto_orbit = mouse_cam; return
+		KEY_C: palette_index = (palette_index + 1) % PALETTE_NAMES.size(); return
+		KEY_G: cage_visible = not cage_visible; return
+		KEY_H:
+			rivers_visible = not rivers_visible
+			if not rivers_visible:
+				_clear_river_motes()
+			else:
+				_build_river_data()
+			return
+		KEY_E:
+			if mode == 9: galaxy_arms = clampi(galaxy_arms + 1, 2, 8); _build_current_geometry()
+			return
+		KEY_B: env_ref.glow_enabled = not env_ref.glow_enabled; return
+		KEY_F:
+			if DisplayServer.window_get_mode() == DisplayServer.WINDOW_MODE_FULLSCREEN:
+				DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_WINDOWED)
+			else:
+				DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_FULLSCREEN)
+			return
+		KEY_UP:
+			if mode == 3:
+				torus_p = clampi(torus_p + 1, 1, 12); _build_current_geometry()
+			else:
+				speed_mult = minf(speed_mult + 0.05, 3.0)
+			return
+		KEY_DOWN:
+			if mode == 3:
+				torus_p = clampi(torus_p - 1, 1, 12); _build_current_geometry()
+			else:
+				speed_mult = maxf(speed_mult - 0.05, 0.05)
+			return
+		KEY_RIGHT, KEY_PERIOD:
+			if mode == 2: platonic_index = (platonic_index + 1) % 5; _build_current_geometry()
+			elif mode == 3: torus_q = clampi(torus_q + 1, 1, 12); _build_current_geometry()
+			return
+		KEY_LEFT, KEY_COMMA:
+			if mode == 2: platonic_index = (platonic_index - 1) % 5; _build_current_geometry()
+			elif mode == 3: torus_q = clampi(torus_q - 1, 1, 12); _build_current_geometry()
+			return
+		KEY_EQUAL, KEY_PLUS, KEY_KP_ADD: speed_mult = minf(speed_mult + 0.05, 3.0); return
+		KEY_MINUS, KEY_KP_SUBTRACT: speed_mult = maxf(speed_mult - 0.05, 0.05); return
+		KEY_PAGEDOWN: speed_mult = maxf(speed_mult - 0.5, 0.05); return
+		KEY_PAGEUP: speed_mult = minf(speed_mult + 0.5, 3.0); return
 
 
 func _jump_mode(m: int):
@@ -1056,6 +1014,11 @@ func _jump_mode(m: int):
 func _cycle_mode():
 	mode = (mode + 1) % MODE_NAMES.size()
 	_build_current_geometry()
+
+
+# ═══════════════════════════════════════════
+# INPUT REPLAY — save/load
+# ═══════════════════════════════════════════
 
 
 # ═══════════════════════════════════════════
