@@ -1274,6 +1274,11 @@ func _load_replay():
 	var d = j.get_data()
 	replay_events = d.get("events", [])
 	if replay_events.size() > 0:
+		# Normalize timestamps — start from first event
+		var offset = replay_events[0]["time"]
+		for ev in replay_events:
+			ev["time"] = ev["time"] - offset
+		simulated_time = 0.0
 		replaying = true
 		recording = true
 		record_duration = 199.0
