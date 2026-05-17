@@ -1121,11 +1121,20 @@ func _prev_song():
 
 func _create_skybox():
 	var sky = Sky.new()
-	var mat = ProceduralSkyMaterial.new()
-	mat.sky_top_color = Color(0.02, 0.01, 0.08)
-	mat.sky_horizon_color = Color(0.04, 0.01, 0.12)
-	mat.ground_horizon_color = Color(0.01, 0.005, 0.04)
-	mat.ground_bottom_color = Color(0.005, 0.002, 0.02)
+	var mat = PanoramaSkyMaterial.new()
+	var img = Image.load_from_file("res://music/evening_sky.exr")
+	if not img.is_empty():
+		mat.panorama = ImageTexture.create_from_image(img)
+	else:
+		# Fallback procedural
+		var pm = ProceduralSkyMaterial.new()
+		pm.sky_top_color = Color(0.02, 0.01, 0.08)
+		pm.sky_horizon_color = Color(0.06, 0.02, 0.12)
+		pm.ground_horizon_color = Color(0.02, 0.01, 0.05)
+		sky.sky_material = pm
+		env_ref.sky = sky
+		env_ref.background_mode = Environment.BG_SKY
+		return
 	sky.sky_material = mat
 	env_ref.sky = sky
 	env_ref.background_mode = Environment.BG_SKY
