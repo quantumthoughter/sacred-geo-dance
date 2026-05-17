@@ -124,6 +124,11 @@ func _notification(what):
 			_save_replay()
 
 
+func _exit_tree():
+	if input_recording and input_events.size() > 0:
+		_save_replay()
+
+
 func _setup_scene():
 	# Audio player
 	audio = AudioStreamPlayer.new()
