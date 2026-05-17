@@ -113,9 +113,7 @@ func _ready():
 	_setup_scene()
 	_build_current_geometry()
 	audio.play()
-	# If MovieWriter mode, try loading a replay
-	if not audio.playing:
-		_load_replay()
+	_load_replay()
 
 
 func _notification(what):
@@ -952,6 +950,7 @@ func _handle_key(keycode: int):
 		KEY_0: _jump_mode(9); return
 		KEY_BACKSLASH: _jump_mode(10); return
 		KEY_K:
+			if replaying: return
 			input_recording = not input_recording
 			if input_recording: input_events.clear()
 			else: _save_replay()
