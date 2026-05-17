@@ -1,6 +1,10 @@
 extends Node3D
 
-# ── Audio ──
+# ── Game state ──
+var state: int = 0  # 0=menu, 1=playing
+var songs: Array = []
+var current_song: int = 0
+var song_name: String = ""
 var audio: AudioStreamPlayer
 var dance_data: DanceData
 var time: float = 0.0
@@ -111,8 +115,14 @@ class DanceData extends RefCounted:
 # ═══════════════════════════════════════════
 func _ready():
 	_setup_scene()
-	_build_current_geometry()
-	audio.play()
+	_scan_songs()
+	if songs.size() > 0:
+		_load_song(0)
+		_build_current_geometry()
+		audio.play()
+	else:
+		_build_current_geometry()
+		audio.play()
 	_load_replay()
 
 
@@ -131,14 +141,6 @@ func _setup_scene():
 	# Audio player
 	audio = AudioStreamPlayer.new()
 	add_child(audio)
-	var dir = DirAccess.open("res://music")
-	dir.list_dir_begin()
-	var fn = dir.get_next()
-	while fn != "":
-		if fn.get_extension() in ["mp3", "wav"]:
-			var s = load("res://music/" + fn)
-			if s: audio.stream = s; break
-		fn = dir.get_next()
 
 	# Environment — rich cosmic void
 	var env = WorldEnvironment.new()
@@ -892,7 +894,7 @@ func _process(delta):
 		var mn = MODE_NAMES[mode]
 		if mode == 2: mn += ": " + PLATONIC_NAMES[platonic_index]
 		if mode == 3: mn += " (%d,%d)" % [torus_p, torus_q]
-		label.text = "%s   %s%.1fs   e:%.2f   %.2f×   [%s]" % [mn, "✦ " if beat_energy > 0.5 else "", t, amp, speed_mult, PALETTE_NAMES[palette_index]]
+		label.text = "%s | %s   e:%.2f   %.2f×   [%s]" % [song_name, mn, amp, speed_mult, PALETTE_NAMES[palette_index]]
 		if not auto_orbit:
 			label.text += "   [free]"
 		if Input.is_key_pressed(KEY_SHIFT):
@@ -948,6 +950,8 @@ func _handle_key(keycode: int):
 		KEY_9: _jump_mode(8); return
 		KEY_0: _jump_mode(9); return
 		KEY_BACKSLASH: _jump_mode(10); return
+		KEY_P: _prev_song(); return
+		KEY_N: _next_song(); return
 		KEY_K:
 			if replaying: return
 			input_recording = not input_recording
@@ -1019,8 +1023,47 @@ func _cycle_mode():
 
 
 # ═══════════════════════════════════════════
-# INPUT REPLAY — save/load
+# SONG MANAGEMENT
 # ═══════════════════════════════════════════
+func _scan_songs():
+	songs.clear()
+	var dir = DirAccess.open("res://music")
+	if not dir: return
+	dir.list_dir_begin()
+	var fn = dir.get_next()
+	while fn != "":
+		if fn.get_extension() in ["mp3", "wav"]:
+			var base = fn.get_basename()
+			var dance_path = "res://music/" + base + ".dance"
+			var quantum_path = "res://music/" + base + ".quantum"
+			if FileAccess.file_exists(dance_path) or FileAccess.file_exists(quantum_path):
+				songs.append({"name": base, "mp3": "res://music/" + fn, "dance": dance_path, "quantum": quantum_path})
+		fn = dir.get_next()
+
+
+func _load_song(idx: int):
+	if idx < 0 or idx >= songs.size(): return
+	current_song = idx
+	var s = songs[idx]
+	var mp3 = load(s["mp3"])
+	if mp3: audio.stream = mp3
+	song_name = s["name"]
+	# Load dance data
+	dance_data = DanceData.load_file(s["dance"])
+
+
+func _next_song():
+	current_song = (current_song + 1) % songs.size()
+	_load_song(current_song)
+	_build_current_geometry()
+	audio.play()
+
+
+func _prev_song():
+	current_song = (current_song - 1 + songs.size()) % songs.size()
+	_load_song(current_song)
+	_build_current_geometry()
+	audio.play()
 
 
 # ═══════════════════════════════════════════
