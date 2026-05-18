@@ -51,7 +51,11 @@ var cage_visible: bool = false
 var palette_index: int = 0
 var edge_trail_timer: float = 0.0
 var orb_shader: ShaderMaterial
+var crystal_shader: ShaderMaterial
 var edge_shader: ShaderMaterial
+
+# ── Beat intensity ── 0=gentle, 1=moderate, 2=maximum
+var beat_intensity: int = 1
 
 # ── Energy rivers ──
 var river_motes: Array = []
@@ -77,6 +81,12 @@ var sky_index: int = 0
 var sky_paths: Array = []
 var sky_names: Array = []
 var sky_material: PanoramaSkyMaterial
+# Sacred image as sky background (T key cycles)
+var sacred_sky_images: Array = []
+var sacred_sky_index: int = -1
+var sacred_sky_mat: ShaderMaterial
+var sky_fade: float = 1.0
+var sky_rotation: float = 0.0
 
 # ── Auto-switch by bars ──
 var auto_switch: bool = true
@@ -229,8 +239,13 @@ func _setup_scene():
 	# Shaders
 	orb_shader = ShaderMaterial.new()
 	orb_shader.shader = load("res://shaders/energy_orb.gdshader")
+	crystal_shader = ShaderMaterial.new()
+	crystal_shader.shader = load("res://shaders/crystal.gdshader")
 	edge_shader = ShaderMaterial.new()
-	edge_shader.shader = load("res://shaders/glow_edge.gdshader")
+	edge_shader.shader = load("res://shaders/rainbow_edge.gdshader")
+	# Sacred sky shader
+	sacred_sky_mat = ShaderMaterial.new()
+	sacred_sky_mat.shader = load("res://shaders/sacred_sky.gdshader")
 
 
 # ═══════════════════════════════════════════
@@ -286,11 +301,22 @@ func _create_vertex(pos: Vector3, radius: float, color: Color):
 	sphere.rings = 8
 	mesh.mesh = sphere
 	mesh.position = pos
-	var mat = orb_shader.duplicate()
+	var mat
+	if randi() % 2 == 0:
+		mat = orb_shader.duplicate()  # Energy — nebula Fresnel
+	else:
+		mat = crystal_shader.duplicate()  # Crystal — diamond rainbow dispersion
 	mat.set_shader_parameter("albedo", color)
 	mat.set_shader_parameter("fresnel_power", randf_range(1.8, 2.8))
-	mat.set_shader_parameter("pulse_speed", randf_range(3.0, 6.0))
+	if mat.shader == orb_shader.shader:
+		mat.set_shader_parameter("pulse_speed", randf_range(3.0, 6.0))
 	mat.set_shader_parameter("base_brightness", 1.3 + randf() * 0.4)
+	if mat.shader == crystal_shader.shader:
+		mat.set_shader_parameter("brightness", 1.3 + randf() * 0.4)
+		mat.set_shader_parameter("dispersion", randf_range(0.3, 0.6))
+		mat.set_shader_parameter("internal_fire", randf_range(0.35, 0.7))
+		mat.set_shader_parameter("sparkle", randf_range(0.2, 0.55))
+		mat.set_shader_parameter("time_offset", randf_range(0.0, TAU))
 	mesh.material_override = mat
 	geometry_container.add_child(mesh)
 	var orb = {
@@ -332,8 +358,10 @@ func _create_edge(fr: Vector3, to: Vector3, radius: float, color: Color):
 		mesh.rotate(axis, angle)
 
 	var mat = edge_shader.duplicate()
-	mat.set_shader_parameter("albedo", color)
+	mat.set_shader_parameter("hue_offset", randf())
 	mat.set_shader_parameter("brightness", 1.2 + randf() * 0.6)
+	mat.set_shader_parameter("scroll_speed", randf_range(0.8, 1.8))
+	mat.set_shader_parameter("time_offset", randf_range(0.0, TAU))
 	mesh.material_override = mat
 	geometry_container.add_child(mesh)
 	edge_nodes.append(mesh)
@@ -865,9 +893,18 @@ func _process(delta):
 			node.position = base_pos + Vector3(w * 0.5, w, w * 0.5)
 		else:
 			node.position = base_pos  # reset any prior displacement
+		# Intensity-based chaos jitter on beats
+		if beat_intensity >= 1 and beat_energy > 0.3:
+			var chaos = beat_energy * (0.05 if beat_intensity == 1 else 0.15)
+			node.position += Vector3(
+				sin(time * 7.0 + phase * 5.0) * chaos,
+				cos(time * 8.0 + phase * 3.0) * chaos * 0.7,
+				sin(time * 6.0 + phase * 4.0 + 1.0) * chaos
+			)
 
-		# Universal pulse — gentler, never disruptive
-		var pulse = 0.85 + amp * 0.5 + beat_energy * 0.8 * (sin(time * 6.0 + phase) * 0.5 + 0.5)
+		# Universal pulse — intensity-scaled
+		var i_pulse_amp = 0.8 + beat_intensity * 0.5
+		var pulse = 0.85 + amp * 0.5 + beat_energy * i_pulse_amp * (sin(time * 6.0 + phase) * 0.5 + 0.5)
 		node.scale = Vector3.ONE * pulse * 2.5
 
 		# ── 16M Color System — procedural uniqueness per orb ──
@@ -884,16 +921,23 @@ func _process(delta):
 		var sat = clampf(pal_sat * (0.6 + centroid * 0.4 + onset_val * 0.2), 0.15, 1.0)
 		var val = clampf(pal_val * (0.5 + amp * 0.4 + phase * 0.1), 0.3, 1.0)
 		var ec = Color.from_hsv(current_hue, sat, val)
-		var brightness = 1.1 + amp * 1.2 + beat_energy * 2.0
+		var brightness = 1.1 + amp * 1.2 + beat_energy * 2.0 * (1.0 + beat_intensity * 0.5)
 		node.material_override.set_shader_parameter("albedo", ec)
 		node.material_override.set_shader_parameter("base_brightness", brightness)
-		node.material_override.set_shader_parameter("beat", beat_energy * 0.6)
+		node.material_override.set_shader_parameter("beat", beat_energy * (0.6 + beat_intensity * 0.4))
+		# Crystal-specific: sync brightness uniform too
+		if node.material_override.shader == crystal_shader.shader:
+			node.material_override.set_shader_parameter("brightness", brightness)
+			node.material_override.set_shader_parameter("sparkle", 0.3 + beat_energy * (0.3 + beat_intensity * 0.2))
 
-	# ── Animate edges ──
+	# ── Animate edges (rainbow scrolling + beat flash) ──
 	for edge in edge_nodes:
 		var mat: ShaderMaterial = edge.material_override
-		if mat:
-			mat.set_shader_parameter("brightness", 0.25 + amp * 1.2 + beat_energy * 1.5)
+		if mat and mat.shader == edge_shader.shader:
+			mat.set_shader_parameter("brightness", 0.4 + amp * 1.2 + beat_energy * 1.5)
+			mat.set_shader_parameter("beat", beat_energy)
+			# Speed scales with intensity
+			mat.set_shader_parameter("scroll_speed", 0.8 + beat_intensity * 0.7 + beat_energy * 0.5)
 
 	# ── Mode-specific rotation ──
 	if mode == 6:  # Merkaba counter-rotation
@@ -921,6 +965,15 @@ func _process(delta):
 			var sc = Color(0.5 + amp, 0.6 + amp * 1.2, 1.0)
 			spm.color = sc
 
+	# ── Sacred image sky animation ──
+	if sacred_sky_index >= 0:
+		sky_fade = lerpf(sky_fade, 1.0, delta * 2.5)
+		sky_rotation += delta * 0.02 * (1.0 + beat_energy * 2.0)
+		sacred_sky_mat.set_shader_parameter("blend", sky_fade)
+		sacred_sky_mat.set_shader_parameter("rotation", sky_rotation)
+		sacred_sky_mat.set_shader_parameter("brightness", 1.0 + beat_energy * 0.3)
+		sacred_sky_mat.set_shader_parameter("beat", beat_energy * 0.4)
+
 	# ── Grid cage ──
 	if cage_visible and grid_cage:
 		grid_cage.visible = true
@@ -929,8 +982,9 @@ func _process(delta):
 	elif grid_cage:
 		grid_cage.visible = false
 
-	# ── Celestial light pulse (rare, gentle) ──
-	if onset_val > 0.6 and beat_energy > 1.5:
+	# ── Celestial blast (intensity-gated) ──
+	var blast_thresh = 0.6 if beat_intensity == 1 else 0.35  # max fires more easily
+	if onset_val > blast_thresh and beat_energy > 1.5:
 		_create_blast()
 		beat_energy *= 0.5  # dampen so it doesn't chain
 
@@ -939,8 +993,8 @@ func _process(delta):
 		cam_theta += delta * (0.18 + amp * 0.35)
 		cam_phi += sin(time * 0.25) * delta * 0.08
 	cam_phi = clamp(cam_phi, -1.4, 1.4)
-	cam_radius = 7.0 + sin(time * 0.6) * 1.8 - beat_energy * 2.5
-	cam_radius = clamp(cam_radius, 3.0, 15.0)
+	cam_radius = 7.0 + sin(time * 0.6) * 1.8 - beat_energy * (2.5 + beat_intensity * 1.5)
+	cam_radius = clamp(cam_radius, 2.5, 15.0)
 	_update_camera_position()
 
 	# ── HUD ──
@@ -949,7 +1003,9 @@ func _process(delta):
 		var mn = MODE_NAMES[mode]
 		if mode == 2: mn += ": " + PLATONIC_NAMES[platonic_index]
 		if mode == 3: mn += " (%d,%d)" % [torus_p, torus_q]
-		label.text = "%s | %s   e:%.2f   %.2f×   [%s]" % [song_name, mn, amp, speed_mult, PALETTE_NAMES[palette_index]]
+		label.text = "%s | %s   e:%.2f   %.2f×   %s   [%s]" % [song_name, mn, amp, speed_mult, PALETTE_NAMES[palette_index], ["*", "**", "***"][beat_intensity]]
+		if sacred_sky_index >= 0:
+			label.text += "   sky:img%d" % sacred_sky_index
 		if not auto_orbit:
 			label.text += "   [free]"
 		if Input.is_key_pressed(KEY_SHIFT):
@@ -1067,10 +1123,21 @@ func _handle_key(keycode: int):
 		KEY_E:
 			if mode == 9: galaxy_arms = clampi(galaxy_arms + 1, 2, 8); _build_current_geometry()
 			return
-		KEY_B: env_ref.glow_enabled = not env_ref.glow_enabled; return
+		KEY_Q: env_ref.glow_enabled = not env_ref.glow_enabled; return
+		KEY_B: beat_intensity = (beat_intensity + 1) % 3; return
 		KEY_S:
 			sky_index = (sky_index + 1) % sky_paths.size()
 			_apply_sky(sky_index)
+			return
+		KEY_T:
+			if sacred_sky_images.size() == 0: return
+			sacred_sky_index += 1
+			if sacred_sky_index >= sacred_sky_images.size():
+				sacred_sky_index = -1
+				var s = Sky.new(); s.sky_material = sky_material
+				env_ref.sky = s; sky_fade = 1.0
+			else:
+				_apply_sacred_sky(sacred_sky_index)
 			return
 		KEY_I:
 			images_visible = not images_visible
@@ -1214,6 +1281,22 @@ func _apply_sky(idx: int):
 		sky_material.panorama = ImageTexture.create_from_image(img)
 
 
+func _apply_sacred_sky(idx: int):
+	if idx < 0 or idx >= sacred_sky_images.size(): return
+	sacred_sky_index = idx
+	sky_fade = 0.0
+	sky_rotation = 0.0
+	sacred_sky_mat.set_shader_parameter("bg_tex", sacred_sky_images[idx])
+	sacred_sky_mat.set_shader_parameter("blend", 0.0)
+	sacred_sky_mat.set_shader_parameter("rotation", 0.0)
+	sacred_sky_mat.set_shader_parameter("brightness", 1.0)
+	sacred_sky_mat.set_shader_parameter("scale", 1.0)
+	sacred_sky_mat.set_shader_parameter("beat", 0.0)
+	var sky = Sky.new()
+	sky.sky_material = sacred_sky_mat
+	env_ref.sky = sky
+
+
 # ═══════════════════════════════════════════
 # IMAGE OVERLAYS — billboarded sacred art in 3D
 # ═══════════════════════════════════════════
@@ -1229,6 +1312,7 @@ func _scan_images():
 		if fn.get_extension() in ["png", "jpg", "jpeg"]:
 			var tex = load("res://images/" + fn)
 			if tex:
+				sacred_sky_images.append(tex)
 				var mesh = MeshInstance3D.new()
 				var quad = QuadMesh.new(); quad.size = Vector2(4, 4)
 				mesh.mesh = quad
@@ -1494,29 +1578,76 @@ func _update_rivers(amp: float, beat_e: float, delta: float):
 # BEAT BLAST — particle burst in 3D
 # ═══════════════════════════════════════════
 func _create_blast():
+	if beat_intensity == 0: return
 	var origin = Vector3.ZERO
 	if vertex_orbs.size() > 0:
 		var idx = randi() % vertex_orbs.size()
 		origin = vertex_orbs[idx]["node"].position
-	for _k in range(16):
-		var pos = origin + Vector3(
-			randf_range(-1.5, 1.5),
-			randf_range(-1.5, 1.5),
-			randf_range(-1.5, 1.5)
-		)
+	var count = 16 if beat_intensity == 1 else randi_range(30, 50)
+	for _k in range(count):
+		var dir = Vector3(randf_range(-1, 1), randf_range(-1, 1), randf_range(-1, 1)).normalized()
+		var dist = randf_range(0.3, 1.8)
+		var pos = origin + dir * dist
 		var mesh = MeshInstance3D.new()
-		var sphere = SphereMesh.new()
-		sphere.radius = 0.04; sphere.height = 0.08
-		mesh.mesh = sphere; mesh.position = pos
-		var mat = orb_shader.duplicate()
-		var bc = Color(1, 0.75, 0.25)
+		# Mix shapes — orbs and quad shards
+		if randf() < 0.7:
+			var sphere = SphereMesh.new()
+			sphere.radius = randf_range(0.03, 0.08); sphere.height = sphere.radius * 2
+			mesh.mesh = sphere
+		else:
+			var quad = QuadMesh.new()
+			quad.size = Vector2.ONE * randf_range(0.08, 0.2)
+			mesh.mesh = quad
+		mesh.position = pos
+		mesh.look_at(origin + dir * 999, Vector3.UP)
+		var mat_type = randi() % 3
+		var mat
+		if mat_type == 0:
+			mat = orb_shader.duplicate()
+			mat.set_shader_parameter("fresnel_power", randf_range(1.2, 2.2))
+			mat.set_shader_parameter("pulse_speed", randf_range(4.0, 10.0))
+		elif mat_type == 1:
+			mat = crystal_shader.duplicate()
+			mat.set_shader_parameter("dispersion", randf_range(0.5, 0.9))
+			mat.set_shader_parameter("sparkle", randf_range(0.4, 0.8))
+		else:
+			mat = edge_shader.duplicate()
+			mat.set_shader_parameter("scroll_speed", randf_range(2.0, 5.0))
+		# Multi-colored explosion — random hue from palette with variation
+		var bh = PALETTE_HUES[palette_index] + randf_range(-0.1, 0.1)
+		var bs = PALETTE_SATS[palette_index] * randf_range(0.7, 1.0)
+		var bv = PALETTE_VALS[palette_index] * randf_range(0.8, 1.0)
+		var bc = Color.from_hsv(fmod(bh, 1.0), bs, bv)
 		mat.set_shader_parameter("albedo", bc)
-		mat.set_shader_parameter("base_brightness", 3.0)
-		mat.set_shader_parameter("fresnel_power", 1.5)
+		mat.set_shader_parameter("base_brightness", 2.5 + randf() * 1.5)
+		if mat.shader == crystal_shader.shader:
+			mat.set_shader_parameter("brightness", 2.5 + randf() * 1.5)
+		mat.set_shader_parameter("beat", 1.5)
 		mesh.material_override = mat
 		add_child(mesh)
-		var timer = get_tree().create_timer(0.35)
-		timer.timeout.connect(func(): mesh.queue_free())
+		# Flight + fade
+		var velocity = dir * randf_range(1.5, 4.0)
+		var life = 0.6 if beat_intensity == 1 else randf_range(0.5, 0.9)
+		var tw = create_tween()
+		tw.set_parallel()
+		tw.tween_method(func(v): mesh.position = pos + velocity * v, 0.0, 1.0, life)
+		tw.tween_property(mesh, "scale", Vector3.ZERO, life).set_trans(Tween.TRANS_EXPO)
+		tw.tween_callback(func(): mesh.queue_free()).set_delay(life)
+		# Trail motes for maximum intensity
+		if beat_intensity == 2:
+			for _t in range(3):
+				var tmesh = MeshInstance3D.new(); var ts = SphereMesh.new()
+				ts.radius = 0.015; ts.height = 0.03
+				tmesh.mesh = ts; tmesh.position = pos - dir * 0.15
+				var tmat = edge_shader.duplicate()
+				tmat.set_shader_parameter("albedo", bc.lightened(0.3))
+				tmat.set_shader_parameter("brightness", 1.5)
+				tmat.set_shader_parameter("scroll_speed", randf_range(2.0, 4.0))
+				tmesh.material_override = tmat
+				add_child(tmesh)
+				var tw2 = create_tween()
+				tw2.tween_property(tmesh, "scale", Vector3.ZERO, 0.25)
+				tw2.tween_callback(func(): tmesh.queue_free()).set_delay(0.25)
 
 
 # ═══════════════════════════════════════════
