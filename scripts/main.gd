@@ -84,9 +84,13 @@ var sky_material: PanoramaSkyMaterial
 # Sacred image as sky background (T key cycles)
 var sacred_sky_images: Array = []
 var sacred_sky_index: int = -1
-var sacred_sky_mat: ShaderMaterial
+var bg_sphere: MeshInstance3D
+var bg_sphere_mat: ShaderMaterial
 var sky_fade: float = 1.0
 var sky_rotation: float = 0.0
+
+# ── Camera stunts ──
+var cam_mode: int = 0  # 0=orbit, 1=pulse, 2=wobble, 3=spin, 4=sweep, 5=dive, 6=rise, 7=random
 
 # ── Auto-switch by bars ──
 var auto_switch: bool = true
@@ -243,9 +247,18 @@ func _setup_scene():
 	crystal_shader.shader = load("res://shaders/crystal.gdshader")
 	edge_shader = ShaderMaterial.new()
 	edge_shader.shader = load("res://shaders/rainbow_edge.gdshader")
-	# Sacred sky shader
-	sacred_sky_mat = ShaderMaterial.new()
-	sacred_sky_mat.shader = load("res://shaders/sacred_sky.gdshader")
+	# Background sphere — sacred image as sky dome
+	bg_sphere_mat = ShaderMaterial.new()
+	bg_sphere_mat.shader = load("res://shaders/bg_sphere.gdshader")
+	bg_sphere = MeshInstance3D.new()
+	bg_sphere.name = "BgSphere"
+	var big_sphere = SphereMesh.new()
+	big_sphere.radius = 60.0; big_sphere.height = 120.0
+	big_sphere.radial_segments = 128; big_sphere.rings = 64
+	bg_sphere.mesh = big_sphere
+	bg_sphere.material_override = bg_sphere_mat
+	bg_sphere.visible = false
+	add_child(bg_sphere)
 
 
 # ═══════════════════════════════════════════
@@ -965,14 +978,14 @@ func _process(delta):
 			var sc = Color(0.5 + amp, 0.6 + amp * 1.2, 1.0)
 			spm.color = sc
 
-	# ── Sacred image sky animation ──
-	if sacred_sky_index >= 0:
+	# ── Sacred image background sphere ──
+	if sacred_sky_index >= 0 and bg_sphere.visible:
 		sky_fade = lerpf(sky_fade, 1.0, delta * 2.5)
-		sky_rotation += delta * 0.02 * (1.0 + beat_energy * 2.0)
-		sacred_sky_mat.set_shader_parameter("blend", sky_fade)
-		sacred_sky_mat.set_shader_parameter("rotation", sky_rotation)
-		sacred_sky_mat.set_shader_parameter("brightness", 1.0 + beat_energy * 0.3)
-		sacred_sky_mat.set_shader_parameter("beat", beat_energy * 0.4)
+		sky_rotation += delta * 0.015 * (1.0 + beat_energy * 1.5)
+		bg_sphere.rotate_y(delta * 0.015 * (1.0 + beat_energy * 1.5))
+		bg_sphere_mat.set_shader_parameter("blend", sky_fade)
+		bg_sphere_mat.set_shader_parameter("brightness", 1.0 + beat_energy * 0.25)
+		bg_sphere_mat.set_shader_parameter("beat", beat_energy * 0.35)
 
 	# ── Grid cage ──
 	if cage_visible and grid_cage:
@@ -988,12 +1001,46 @@ func _process(delta):
 		_create_blast()
 		beat_energy *= 0.5  # dampen so it doesn't chain
 
-	# ── Camera orbit ──
-	if auto_orbit:
-		cam_theta += delta * (0.18 + amp * 0.35)
-		cam_phi += sin(time * 0.25) * delta * 0.08
+	# ── Camera stunt presets ──
+	match cam_mode:
+		0:  # Orbit
+			if auto_orbit: cam_theta += delta * (0.18 + amp * 0.35)
+			cam_phi += sin(time * 0.25) * delta * 0.08
+			cam_radius = 7.0 + sin(time * 0.6) * 1.8 - beat_energy * (2.5 + beat_intensity * 1.5)
+		1:  # Pulse zoom
+			if auto_orbit: cam_theta += delta * 0.12
+			cam_phi = 0.3 + sin(time * 0.5) * 0.2
+			cam_radius = 4.5 + amp * 4.0 + sin(time * 0.8) * 2.0 - beat_energy * 1.5
+		2:  # Wobble
+			if auto_orbit: cam_theta += delta * 0.22
+			cam_phi = 0.4 + sin(time * 1.3) * 0.35 + cos(time * 0.7) * 0.2
+			cam_radius = 6.5 + sin(time * 0.6) * 1.8
+		3:  # Spin
+			cam_theta += delta * (0.7 + beat_energy * 2.0)
+			cam_phi = 0.28 + beat_energy * 0.15
+			cam_radius = 6.0 + beat_energy * 1.5
+		4:  # Sweep
+			cam_theta = sin(time * 0.12) * PI
+			cam_phi = 0.28 + sin(time * 0.3) * 0.25
+			cam_radius = 7.0 + amp * 2.5
+		5:  # Dive
+			if auto_orbit: cam_theta += delta * 0.1
+			cam_phi = 0.35
+			var dive_target = clampf(10.0 - beat_energy * 5.0, 2.5, 15.0)
+			cam_radius = lerpf(cam_radius, dive_target, delta * 5.0)
+		6:  # Rise — top-down mandala view
+			cam_theta += delta * 0.06
+			cam_phi = 1.15 + sin(time * 0.3) * 0.12
+			cam_radius = 5.5 + amp * 2.0
+		7:  # Random beat jumps
+			if onset_val > 0.5 and last_onset <= 0.5:
+				cam_theta += randf_range(-0.6, 0.6)
+				cam_phi = randf_range(0.1, 1.0)
+				cam_radius = randf_range(3.5, 10.0)
+			cam_theta += delta * 0.1
+			cam_phi = lerpf(cam_phi, 0.4, delta * 0.4)
+			cam_radius = lerpf(cam_radius, 6.5, delta * 0.3)
 	cam_phi = clamp(cam_phi, -1.4, 1.4)
-	cam_radius = 7.0 + sin(time * 0.6) * 1.8 - beat_energy * (2.5 + beat_intensity * 1.5)
 	cam_radius = clamp(cam_radius, 2.5, 15.0)
 	_update_camera_position()
 
@@ -1003,9 +1050,13 @@ func _process(delta):
 		var mn = MODE_NAMES[mode]
 		if mode == 2: mn += ": " + PLATONIC_NAMES[platonic_index]
 		if mode == 3: mn += " (%d,%d)" % [torus_p, torus_q]
-		label.text = "%s | %s   e:%.2f   %.2f×   %s   [%s]" % [song_name, mn, amp, speed_mult, PALETTE_NAMES[palette_index], ["*", "**", "***"][beat_intensity]]
+		label.text = "%s | %s   e:%.2f   %.2f×   %s   [%s]   cam:%s" % [song_name, mn, amp, speed_mult, PALETTE_NAMES[palette_index], ["*", "**", "***"][beat_intensity], ["Orbit", "Pulse", "Wobble", "Spin", "Sweep", "Dive", "Rise", "Random"][cam_mode]]
 		if sacred_sky_index >= 0:
 			label.text += "   sky:img%d" % sacred_sky_index
+		if images_visible and image_meshes.size() > 0:
+			label.text += "   img:%s" % image_meshes[image_index]["name"]
+		if video_visible:
+			label.text += "   [vid]"
 		if not auto_orbit:
 			label.text += "   [free]"
 		if Input.is_key_pressed(KEY_SHIFT):
@@ -1111,6 +1162,7 @@ func _handle_key(keycode: int):
 			elif mode == 3: torus_p = randi() % 10 + 1; torus_q = randi() % 10 + 1
 			_build_current_geometry(); return
 		KEY_M: mouse_cam = not mouse_cam; auto_orbit = mouse_cam; return
+		KEY_X: cam_mode = (cam_mode + 1) % 8; return
 		KEY_C: palette_index = (palette_index + 1) % PALETTE_NAMES.size(); return
 		KEY_G: cage_visible = not cage_visible; return
 		KEY_H:
@@ -1134,8 +1186,9 @@ func _handle_key(keycode: int):
 			sacred_sky_index += 1
 			if sacred_sky_index >= sacred_sky_images.size():
 				sacred_sky_index = -1
-				var s = Sky.new(); s.sky_material = sky_material
-				env_ref.sky = s; sky_fade = 1.0
+				bg_sphere.visible = false
+				env_ref.background_energy_multiplier = 1.0
+				sky_fade = 1.0
 			else:
 				_apply_sacred_sky(sacred_sky_index)
 			return
@@ -1286,15 +1339,13 @@ func _apply_sacred_sky(idx: int):
 	sacred_sky_index = idx
 	sky_fade = 0.0
 	sky_rotation = 0.0
-	sacred_sky_mat.set_shader_parameter("bg_tex", sacred_sky_images[idx])
-	sacred_sky_mat.set_shader_parameter("blend", 0.0)
-	sacred_sky_mat.set_shader_parameter("rotation", 0.0)
-	sacred_sky_mat.set_shader_parameter("brightness", 1.0)
-	sacred_sky_mat.set_shader_parameter("scale", 1.0)
-	sacred_sky_mat.set_shader_parameter("beat", 0.0)
-	var sky = Sky.new()
-	sky.sky_material = sacred_sky_mat
-	env_ref.sky = sky
+	bg_sphere_mat.set_shader_parameter("bg_tex", sacred_sky_images[idx])
+	bg_sphere_mat.set_shader_parameter("blend", 0.0)
+	bg_sphere_mat.set_shader_parameter("brightness", 1.0)
+	bg_sphere_mat.set_shader_parameter("beat", 0.0)
+	bg_sphere.visible = true
+	# Dim HDR sky behind the sphere
+	env_ref.background_energy_multiplier = 0.15
 
 
 # ═══════════════════════════════════════════
